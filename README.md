@@ -26,7 +26,7 @@ Neural Brain handles the rest: provider failover, cost optimization, specialist 
 
 ```bash
 # Clone
-git clone https://github.com/AKBala/neural-brain-api.git
+git clone https://github.com/balas072024/neural-brain-api.git
 cd neural-brain-api
 
 # Install
@@ -353,4 +353,4 @@ MIT — use it however you want.
 
 PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Built by [Balamurugan](https://github.com/AKBala) — part of the Kaashmikhaa AI ecosystem.
+Built by [Balamurugan](https://github.com/balas072024) — part of the Kaashmikhaa AI ecosystem.
