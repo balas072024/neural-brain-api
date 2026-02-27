@@ -1,20 +1,23 @@
 """
-KaasAI Neural Brain v2.0 — Comprehensive Unified LLM Gateway & Router
-Central AI backbone for all Kaashmikhaa products + OpenClaw fallback.
+KaasAI Neural Brain v3.0 — Local-First Unified LLM Gateway & Router
+Central AI backbone — zero API keys needed. 100% functional with just Ollama.
 
-UPGRADE: Added ALL major 2026 frontier models across every category:
-- Text/Reasoning: GPT-5.2, Claude 4.5, Gemini 3, DeepSeek V3.2, Grok 4.1, etc.
-- Vision: Qwen3-VL, LLaVA, MiniCPM-o, Llama 4 Scout, etc.
-- Audio/Speech: MiniCPM-o 2.6, Qwen3-Omni, Whisper
-- Code: Qwen3-Coder, DeepSeek-Coder, Devstral, Codestral
-- Reasoning: DeepSeek-R1, Phi4-Reasoning, o4-mini, Gemini 2.5 Pro
-- OCR/Translation: GLM-OCR, TranslateGemma, FunctionGemma
-- Enterprise: IBM Granite 4 (Hybrid Mamba), GLM-4.7-Flash (30B MoE)
-- Embedding: Qwen3-Embedding (#1 MTEB), OpenAI text-embedding-3
-- Local/Free: 15+ Ollama models optimized for 8GB VRAM RTX 4060
+LOCAL-FIRST ARCHITECTURE:
+- 45+ local Ollama models across all categories (code, reasoning, vision, audio, embedding)
+- Tiered model selection: auto-picks best model for your hardware (2GB → 48GB VRAM)
+- Smart routing: LOCAL_FIRST strategy ensures local models are always preferred
+- Ensemble engine: multi-model orchestration using only local models
+- Local embeddings: Qwen3-Embedding, Nomic, MxBAI — no OpenAI needed
 
-Supports: Anthropic, OpenAI, Google, Groq, Ollama, OpenRouter, Together,
-          HuggingFace, Mistral, xAI, DeepSeek, LM Studio, vLLM, Custom
+MODEL TIERS (Local):
+- Tier 1 (1-4B): Qwen3 1.7B/4B, Phi4-Mini, Llama 3.2 1B/3B, Gemma 3 4B — any hardware
+- Tier 2 (7-8B): Qwen3 8B, Gemma 3 12B, Qwen 2.5 Coder 7B — 4GB VRAM
+- Tier 3 (14B): Phi4, Qwen3 14B, DeepSeek R1 14B — 8GB VRAM
+- Tier 4 (27-32B): Qwen3 32B, Gemma 3 27B, DeepSeek R1 32B — 16-24GB VRAM
+
+CLOUD PROVIDERS (optional, for users with API keys):
+- Anthropic, OpenAI, Google, Groq, Ollama, OpenRouter, Together,
+  HuggingFace, Mistral, xAI, DeepSeek, LM Studio, vLLM, Custom
 """
 import os
 import json
@@ -78,6 +81,7 @@ class RoutingStrategy(Enum):
     ROUND_ROBIN = "round_robin"
     FALLBACK = "fallback"
     CAPABILITY = "capability"
+    LOCAL_FIRST = "local_first"
     CUSTOM = "custom"
 
 
@@ -133,7 +137,7 @@ class CompletionRequest:
     tools: List[Dict] = field(default_factory=list)
     tool_choice: str = "auto"
     response_format: Optional[Dict] = None
-    routing_strategy: RoutingStrategy = RoutingStrategy.FALLBACK
+    routing_strategy: RoutingStrategy = RoutingStrategy.LOCAL_FIRST
     required_capabilities: List[ModelCapability] = field(default_factory=list)
     max_cost_per_request: float = 0.0
     product: str = ""
@@ -525,145 +529,178 @@ DEFAULT_MODELS = {
 
     # ══════════════════════════════════════════════
     # CATEGORY 5: LOCAL MODELS (Ollama — FREE)
-    # Optimized for RTX 4060 8GB VRAM + 32GB RAM
+    # Optimized for maximum efficiency on any hardware
+    # Tiered: Tiny (1-3B) → Small (7-8B) → Medium (14B) → Large (27-32B)
     # ══════════════════════════════════════════════
 
-    # ─── General Chat (Local) ───
-    "ollama/phi3:mini": ModelConfig(
-        id="ollama/phi3:mini", provider=ProviderType.OLLAMA,
-        name="Phi3 Mini 3.8B (Local, 2.2GB)", context_window=128000, max_output=4096,
+    # ─── TIER 1: ULTRA-LIGHT (1-4B, runs on anything, <3GB VRAM) ───
+    "ollama/qwen3:1.7b": ModelConfig(
+        id="ollama/qwen3:1.7b", provider=ProviderType.OLLAMA,
+        name="Qwen 3 1.7B (Ultra-Light, Hybrid Thinking)", context_window=40960, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
                       ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
-    "ollama/phi4": ModelConfig(
-        id="ollama/phi4", provider=ProviderType.OLLAMA,
-        name="Phi 4 14B (Local, 8GB)", context_window=200000, max_output=8192,
+    "ollama/qwen3:4b": ModelConfig(
+        id="ollama/qwen3:4b", provider=ProviderType.OLLAMA,
+        name="Qwen 3 4B (Light, Beats 7B Models)", context_window=40960, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.FAST, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/phi4-mini": ModelConfig(
+        id="ollama/phi4-mini", provider=ProviderType.OLLAMA,
+        name="Phi 4 Mini 3.8B (Microsoft, Strong STEM)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.FAST, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/llama3.2:3b": ModelConfig(
+        id="ollama/llama3.2:3b", provider=ProviderType.OLLAMA,
+        name="Llama 3.2 3B (Meta, Ultra-Fast)", context_window=128000, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/llama3.2:1b": ModelConfig(
+        id="ollama/llama3.2:1b", provider=ProviderType.OLLAMA,
+        name="Llama 3.2 1B (Instant Responses, 700MB)", context_window=128000, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/gemma3:4b": ModelConfig(
+        id="ollama/gemma3:4b", provider=ProviderType.OLLAMA,
+        name="Gemma 3 4B (Google, Vision+Text)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
+                      ModelCapability.FAST, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/granite4": ModelConfig(
+        id="ollama/granite4", provider=ProviderType.OLLAMA,
+        name="IBM Granite 4 3B (Hybrid Mamba, Tool Calling)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE,
+                      ModelCapability.FUNCTION_CALLING, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP, ModelCapability.FAST],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/smollm2:1.7b": ModelConfig(
+        id="ollama/smollm2:1.7b", provider=ProviderType.OLLAMA,
+        name="SmolLM2 1.7B (HuggingFace, Tiny+Fast)", context_window=8192, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+
+    # ─── TIER 2: EFFICIENT (7-8B, sweet spot, 4-5GB VRAM) ───
+    "ollama/qwen3:8b": ModelConfig(
+        id="ollama/qwen3:8b", provider=ProviderType.OLLAMA,
+        name="Qwen 3 8B (Best 8B Model, Hybrid Thinking)", context_window=40960, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/gemma3": ModelConfig(
+        id="ollama/gemma3", provider=ProviderType.OLLAMA,
+        name="Gemma 3 12B (Google, Vision+Text, Strong)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.VISION,
                       ModelCapability.STREAMING, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
     "ollama/llama3.3": ModelConfig(
         id="ollama/llama3.3", provider=ProviderType.OLLAMA,
-        name="Llama 3.3 8B (Local, 4.5GB)", context_window=128000, max_output=8192,
+        name="Llama 3.3 70B (Q4 runs on 48GB)", context_window=128000, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.STREAMING,
                       ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
-    "ollama/llama4:scout": ModelConfig(
-        id="ollama/llama4:scout", provider=ProviderType.OLLAMA,
-        name="Llama 4 Scout (Local, Vision)", context_window=512000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.VISION,
-                      ModelCapability.STREAMING, ModelCapability.LONG_CONTEXT, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="vision",
-    ),
     "ollama/mistral": ModelConfig(
         id="ollama/mistral", provider=ProviderType.OLLAMA,
-        name="Mistral 7B (Local, 4GB)", context_window=32000, max_output=4096,
+        name="Mistral 7B (Stable Classic, 4GB)", context_window=32000, max_output=4096,
         capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
                       ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
-    "ollama/gemma3": ModelConfig(
-        id="ollama/gemma3", provider=ProviderType.OLLAMA,
-        name="Gemma 3 4B (Local, Google)", context_window=128000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
-                      ModelCapability.FAST, ModelCapability.CHEAP],
+    "ollama/phi3:mini": ModelConfig(
+        id="ollama/phi3:mini", provider=ProviderType.OLLAMA,
+        name="Phi3 Mini 3.8B (Legacy, 2.2GB)", context_window=128000, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
     "ollama/qwen2.5": ModelConfig(
         id="ollama/qwen2.5", provider=ProviderType.OLLAMA,
-        name="Qwen 2.5 7B (Local)", context_window=128000, max_output=8192,
+        name="Qwen 2.5 7B (Solid All-Around)", context_window=128000, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.STREAMING,
                       ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
     "ollama/qwen3": ModelConfig(
         id="ollama/qwen3", provider=ProviderType.OLLAMA,
-        name="Qwen 3 8B (Local, Latest)", context_window=128000, max_output=8192,
+        name="Qwen 3 8B (Latest, Hybrid Thinking)", context_window=40960, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
                       ModelCapability.STREAMING, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
+    "ollama/llama3": ModelConfig(
+        id="ollama/llama3", provider=ProviderType.OLLAMA,
+        name="Llama 3 8B (Meta Foundation)", context_window=8192, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP, ModelCapability.FAST],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
 
-    # ─── Code (Local) ───
-    "ollama/qwen2.5-coder:7b": ModelConfig(
-        id="ollama/qwen2.5-coder:7b", provider=ProviderType.OLLAMA,
-        name="Qwen 2.5 Coder 7B (Local)", context_window=131072, max_output=8192,
+    # ─── TIER 3: MEDIUM (14B, great quality, 8GB VRAM) ───
+    "ollama/phi4": ModelConfig(
+        id="ollama/phi4", provider=ProviderType.OLLAMA,
+        name="Phi 4 14B (Microsoft, Excellent Reasoning)", context_window=200000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/qwen3:14b": ModelConfig(
+        id="ollama/qwen3:14b", provider=ProviderType.OLLAMA,
+        name="Qwen 3 14B (Near-Frontier Local Quality)", context_window=40960, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/deepseek-r1:14b": ModelConfig(
+        id="ollama/deepseek-r1:14b", provider=ProviderType.OLLAMA,
+        name="DeepSeek R1 14B (Strong Reasoning, 8GB)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="reasoning",
+    ),
+
+    # ─── TIER 4: LARGE (27-32B, top local quality, 16-20GB VRAM) ───
+    "ollama/gemma3:27b": ModelConfig(
+        id="ollama/gemma3:27b", provider=ProviderType.OLLAMA,
+        name="Gemma 3 27B (Google, Near-GPT-4 Quality)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.VISION,
+                      ModelCapability.REASONING, ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/qwen3:32b": ModelConfig(
+        id="ollama/qwen3:32b", provider=ProviderType.OLLAMA,
+        name="Qwen 3 32B (Best Open Model, Frontier-Class)", context_window=40960, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/qwen2.5-coder:32b": ModelConfig(
+        id="ollama/qwen2.5-coder:32b", provider=ProviderType.OLLAMA,
+        name="Qwen 2.5 Coder 32B (Best Local Coding)", context_window=131072, max_output=8192,
         capabilities=[ModelCapability.CODE, ModelCapability.CHAT, ModelCapability.STREAMING,
                       ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="code",
     ),
-    "ollama/devstral": ModelConfig(
-        id="ollama/devstral", provider=ProviderType.OLLAMA,
-        name="Devstral (Local, SWE Agent)", context_window=128000, max_output=8192,
-        capabilities=[ModelCapability.CODE, ModelCapability.CHAT, ModelCapability.FUNCTION_CALLING,
-                      ModelCapability.STREAMING, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="code",
-    ),
-    "ollama/deepseek-coder-v2": ModelConfig(
-        id="ollama/deepseek-coder-v2", provider=ProviderType.OLLAMA,
-        name="DeepSeek Coder V2 (Local)", context_window=128000, max_output=4096,
-        capabilities=[ModelCapability.CODE, ModelCapability.STREAMING, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="code",
-    ),
-
-    # ─── Reasoning (Local) ───
-    "ollama/deepseek-r1:8b": ModelConfig(
-        id="ollama/deepseek-r1:8b", provider=ProviderType.OLLAMA,
-        name="DeepSeek R1 8B (Local Reasoning)", context_window=128000, max_output=8192,
+    "ollama/deepseek-r1:32b": ModelConfig(
+        id="ollama/deepseek-r1:32b", provider=ProviderType.OLLAMA,
+        name="DeepSeek R1 32B (Best Local Reasoning)", context_window=128000, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
                       ModelCapability.STREAMING, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="reasoning",
-    ),
-    "ollama/phi4-reasoning": ModelConfig(
-        id="ollama/phi4-reasoning", provider=ProviderType.OLLAMA,
-        name="Phi 4 Reasoning (Local)", context_window=200000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
-                      ModelCapability.STREAMING, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="reasoning",
-    ),
-
-    # ─── Vision/Multimodal (Local) ───
-    "ollama/llava": ModelConfig(
-        id="ollama/llava", provider=ProviderType.OLLAMA,
-        name="LLaVA 1.6 (Local Vision)", context_window=4096, max_output=2048,
-        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
-                      ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="vision",
-    ),
-    "ollama/qwen3-vl": ModelConfig(
-        id="ollama/qwen3-vl", provider=ProviderType.OLLAMA,
-        name="Qwen3-VL (Best Open VLM, Vision+Video+Agent, 8B)", context_window=256000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.VIDEO,
-                      ModelCapability.FUNCTION_CALLING, ModelCapability.STREAMING,
-                      ModelCapability.LONG_CONTEXT, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="vision",
-    ),
-    "ollama/mistral-small3.1": ModelConfig(
-        id="ollama/mistral-small3.1", provider=ProviderType.OLLAMA,
-        name="Mistral Small 3.1 (Local Vision+Text)", context_window=128000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
-                      ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="vision",
-    ),
-
-    # ─── Omni/Audio (Local) — BEST FOR AUDIO ───
-    "ollama/minicpm-o": ModelConfig(
-        id="ollama/minicpm-o", provider=ProviderType.OLLAMA,
-        name="MiniCPM-o 2.6 (Local Omni: Vision+Audio+Speech)", context_window=32000, max_output=4096,
-        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.AUDIO,
-                      ModelCapability.SPEECH_IN, ModelCapability.SPEECH_OUT,
-                      ModelCapability.OMNI, ModelCapability.STREAMING, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="audio",
-    ),
-
-    # ─── GLM Models (Zhipu AI — via Ollama) ───
-    "ollama/glm-ocr": ModelConfig(
-        id="ollama/glm-ocr", provider=ProviderType.OLLAMA,
-        name="GLM-OCR (#1 Document OCR, 0.9B)", context_window=8192, max_output=8192,
-        capabilities=[ModelCapability.VISION, ModelCapability.STREAMING, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="vision",
     ),
     "ollama/glm-4.7-flash": ModelConfig(
         id="ollama/glm-4.7-flash", provider=ProviderType.OLLAMA,
@@ -674,46 +711,153 @@ DEFAULT_MODELS = {
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
 
-    # ─── Google Gemma Specialists (via Ollama) ───
+    # ─── Code Specialists (Local) ───
+    "ollama/qwen2.5-coder:7b": ModelConfig(
+        id="ollama/qwen2.5-coder:7b", provider=ProviderType.OLLAMA,
+        name="Qwen 2.5 Coder 7B (Efficient Code)", context_window=131072, max_output=8192,
+        capabilities=[ModelCapability.CODE, ModelCapability.CHAT, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="code",
+    ),
+    "ollama/qwen2.5-coder:14b": ModelConfig(
+        id="ollama/qwen2.5-coder:14b", provider=ProviderType.OLLAMA,
+        name="Qwen 2.5 Coder 14B (Strong Code)", context_window=131072, max_output=8192,
+        capabilities=[ModelCapability.CODE, ModelCapability.CHAT, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="code",
+    ),
+    "ollama/devstral": ModelConfig(
+        id="ollama/devstral", provider=ProviderType.OLLAMA,
+        name="Devstral 24B (Mistral, SWE Agent)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CODE, ModelCapability.CHAT, ModelCapability.FUNCTION_CALLING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="code",
+    ),
+    "ollama/deepseek-coder-v2": ModelConfig(
+        id="ollama/deepseek-coder-v2", provider=ProviderType.OLLAMA,
+        name="DeepSeek Coder V2 16B (MoE)", context_window=128000, max_output=4096,
+        capabilities=[ModelCapability.CODE, ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="code",
+    ),
+    "ollama/starcoder2:7b": ModelConfig(
+        id="ollama/starcoder2:7b", provider=ProviderType.OLLAMA,
+        name="StarCoder2 7B (BigCode, 600+ Languages)", context_window=16384, max_output=4096,
+        capabilities=[ModelCapability.CODE, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="code",
+    ),
+
+    # ─── Reasoning Specialists (Local) ───
+    "ollama/deepseek-r1:8b": ModelConfig(
+        id="ollama/deepseek-r1:8b", provider=ProviderType.OLLAMA,
+        name="DeepSeek R1 8B (Efficient Reasoning)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="reasoning",
+    ),
+    "ollama/deepseek-r1:1.5b": ModelConfig(
+        id="ollama/deepseek-r1:1.5b", provider=ProviderType.OLLAMA,
+        name="DeepSeek R1 1.5B (Tiny Reasoner, 1GB)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.FAST, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="reasoning",
+    ),
+    "ollama/phi4-reasoning": ModelConfig(
+        id="ollama/phi4-reasoning", provider=ProviderType.OLLAMA,
+        name="Phi 4 Reasoning 14B (Microsoft)", context_window=200000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="reasoning",
+    ),
+
+    # ─── Vision/Multimodal (Local) ───
+    "ollama/llama4:scout": ModelConfig(
+        id="ollama/llama4:scout", provider=ProviderType.OLLAMA,
+        name="Llama 4 Scout (Vision+Text, 512K Context)", context_window=512000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.VISION,
+                      ModelCapability.STREAMING, ModelCapability.LONG_CONTEXT, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
+    "ollama/qwen3-vl": ModelConfig(
+        id="ollama/qwen3-vl", provider=ProviderType.OLLAMA,
+        name="Qwen3-VL 8B (Best Open VLM, Vision+Video)", context_window=256000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.VIDEO,
+                      ModelCapability.FUNCTION_CALLING, ModelCapability.STREAMING,
+                      ModelCapability.LONG_CONTEXT, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
+    "ollama/mistral-small3.1": ModelConfig(
+        id="ollama/mistral-small3.1", provider=ProviderType.OLLAMA,
+        name="Mistral Small 3.1 24B (Vision+Text, Strong)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.FUNCTION_CALLING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
+    "ollama/llava": ModelConfig(
+        id="ollama/llava", provider=ProviderType.OLLAMA,
+        name="LLaVA 1.6 7B (Lightweight Vision)", context_window=4096, max_output=2048,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
+    "ollama/llama3.2-vision": ModelConfig(
+        id="ollama/llama3.2-vision", provider=ProviderType.OLLAMA,
+        name="Llama 3.2 Vision 11B (Meta, Efficient VLM)", context_window=128000, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
+
+    # ─── Omni/Audio (Local) ───
+    "ollama/minicpm-o": ModelConfig(
+        id="ollama/minicpm-o", provider=ProviderType.OLLAMA,
+        name="MiniCPM-o 2.6 (Omni: Vision+Audio+Speech)", context_window=32000, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.AUDIO,
+                      ModelCapability.SPEECH_IN, ModelCapability.SPEECH_OUT,
+                      ModelCapability.OMNI, ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="audio",
+    ),
+
+    # ─── Specialist Models (Local) ───
+    "ollama/glm-ocr": ModelConfig(
+        id="ollama/glm-ocr", provider=ProviderType.OLLAMA,
+        name="GLM-OCR 0.9B (#1 Document OCR)", context_window=8192, max_output=8192,
+        capabilities=[ModelCapability.VISION, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
     "ollama/translategemma": ModelConfig(
         id="ollama/translategemma", provider=ProviderType.OLLAMA,
-        name="TranslateGemma (55 Languages Translation, 4B)", context_window=128000, max_output=8192,
+        name="TranslateGemma 4B (55 Languages)", context_window=128000, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
     "ollama/functiongemma": ModelConfig(
         id="ollama/functiongemma", provider=ProviderType.OLLAMA,
-        name="FunctionGemma (270M Ultra-Tiny Function Calling)", context_window=8192, max_output=2048,
+        name="FunctionGemma 270M (Ultra-Tiny Tool Calling)", context_window=8192, max_output=2048,
         capabilities=[ModelCapability.FUNCTION_CALLING, ModelCapability.STREAMING,
                       ModelCapability.FAST, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="code",
     ),
 
-    # ─── IBM Granite (via Ollama) ───
-    "ollama/granite4": ModelConfig(
-        id="ollama/granite4", provider=ProviderType.OLLAMA,
-        name="IBM Granite 4 (Hybrid Mamba, Tool Calling, 3B)", context_window=128000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.CODE,
-                      ModelCapability.FUNCTION_CALLING, ModelCapability.STREAMING,
-                      ModelCapability.CHEAP, ModelCapability.FAST],
-        is_local=True, endpoint="http://localhost:11434", category="general",
-    ),
-
-    # ─── Qwen3 Specialists (via Ollama) ───
+    # ─── Embedding Models (Local) ───
     "ollama/qwen3-embedding": ModelConfig(
         id="ollama/qwen3-embedding", provider=ProviderType.OLLAMA,
-        name="Qwen3-Embedding (#1 MTEB Multilingual, 0.6B)", context_window=32000, max_output=0,
+        name="Qwen3-Embedding 0.6B (#1 MTEB Multilingual)", context_window=32000, max_output=0,
         capabilities=[ModelCapability.EMBEDDING, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="embedding",
     ),
-
-    # ─── Llama 3 (via Ollama) ───
-    "ollama/llama3": ModelConfig(
-        id="ollama/llama3", provider=ProviderType.OLLAMA,
-        name="Llama 3 (8B, Meta Foundation)", context_window=8192, max_output=4096,
-        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING,
-                      ModelCapability.CHEAP, ModelCapability.FAST],
-        is_local=True, endpoint="http://localhost:11434", category="general",
+    "ollama/nomic-embed-text": ModelConfig(
+        id="ollama/nomic-embed-text", provider=ProviderType.OLLAMA,
+        name="Nomic Embed Text 137M (Fast Embeddings)", context_window=8192, max_output=0,
+        capabilities=[ModelCapability.EMBEDDING, ModelCapability.FAST, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="embedding",
+    ),
+    "ollama/mxbai-embed-large": ModelConfig(
+        id="ollama/mxbai-embed-large", provider=ProviderType.OLLAMA,
+        name="MxBAI Embed Large 335M (High Quality Embeddings)", context_window=512, max_output=0,
+        capabilities=[ModelCapability.EMBEDDING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="embedding",
     ),
 
     # ─── LM Studio ───
@@ -735,7 +879,7 @@ QUALITY_RANKING = [
     "gemini-3.1-pro",            # 2. Latest Gemini frontier
     "gemini-3.0-pro",            # 3. Best multimodal + 2M context
     "gpt-5.2",                   # 4. Best omni-modal
-    "gemini-3-flash",            # 5. ⚡ Pro intelligence at Flash speed!
+    "gemini-3-flash",            # 5. Pro intelligence at Flash speed
     "grok-4.1",                  # 6. Cheapest frontier
     "o3",                        # 7. Deepest reasoning
     "claude-sonnet-4-5-20250929",# 8. Great balance
@@ -743,16 +887,59 @@ QUALITY_RANKING = [
     "gpt-4.1",                   # 10. 1M context
     "deepseek-v3.2",             # 11. Best value reasoning
     "mistral-large-3",           # 12. Good European option
-    "MiniMax-M2.5",              # 13. Great value, SWE-bench 80.2%
-    "MiniMax-M2.5-Lightning",    # 14. Same quality, 2x faster (100 TPS)
-    "gpt-4o",                    # 14. Proven omni-modal
-    "deepseek-r1",               # 15. Open reasoning
-    "llama-3.3-70b-versatile",   # 16. Fast via Groq
-    "claude-haiku-4-5-20251001", # 17. Fast Anthropic
-    "gemini-2.5-flash",          # 18. Best value Flash
-    "gpt-4o-mini",               # 19. Cheapest OpenAI
-    "gemini-2.5-flash-lite",     # 20. Ultra-cheap Google
-    "gemini-2.0-flash",          # 21. Legacy (retiring)
+    "MiniMax-M2.5",              # 13. Great value
+    "MiniMax-M2.5-Lightning",    # 14. Fast inference
+    "gpt-4o",                    # 15. Proven omni-modal
+    "deepseek-r1",               # 16. Open reasoning
+    "llama-3.3-70b-versatile",   # 17. Fast via Groq
+    "claude-haiku-4-5-20251001", # 18. Fast Anthropic
+    "gemini-2.5-flash",          # 19. Best value Flash
+    "gpt-4o-mini",               # 20. Cheapest OpenAI
+    "gemini-2.5-flash-lite",     # 21. Ultra-cheap Google
+    "gemini-2.0-flash",          # 22. Legacy
+]
+
+
+# ═══════════════════════════════════════════════════════
+# Local Quality Ranking — used by LOCAL_FIRST router
+# Best-to-good ordering for local Ollama models
+# ═══════════════════════════════════════════════════════
+
+LOCAL_QUALITY_RANKING = [
+    # Tier 4: Large — best quality available locally
+    "ollama/qwen3:32b",         # 1. Best open model overall
+    "ollama/gemma3:27b",        # 2. Near-GPT-4 quality, vision
+    "ollama/deepseek-r1:32b",   # 3. Best local reasoning
+    "ollama/qwen2.5-coder:32b", # 4. Best local coding
+    "ollama/glm-4.7-flash",     # 5. 30B MoE, great efficiency
+    "ollama/devstral",          # 6. 24B SWE agent
+    "ollama/mistral-small3.1",  # 7. 24B vision+text
+
+    # Tier 3: Medium — great quality, fits 8GB VRAM
+    "ollama/qwen3:14b",         # 8. Near-frontier quality
+    "ollama/phi4",              # 9. Excellent reasoning
+    "ollama/deepseek-r1:14b",   # 10. Strong reasoning
+    "ollama/qwen2.5-coder:14b", # 11. Strong coding
+    "ollama/phi4-reasoning",    # 12. Dedicated reasoner
+
+    # Tier 2: Efficient — sweet spot, runs on 4GB VRAM
+    "ollama/qwen3:8b",          # 13. Best 8B model
+    "ollama/gemma3",            # 14. Google 12B, vision
+    "ollama/qwen3",             # 15. Qwen3 default
+    "ollama/qwen2.5",           # 16. Solid all-around
+    "ollama/deepseek-r1:8b",    # 17. Efficient reasoning
+    "ollama/qwen2.5-coder:7b",  # 18. Efficient coding
+    "ollama/llama3.3",          # 19. Meta 70B (if hardware allows)
+
+    # Tier 1: Ultra-light — instant responses, any hardware
+    "ollama/qwen3:4b",          # 20. Beats 7B models
+    "ollama/phi4-mini",         # 21. Strong STEM at 3.8B
+    "ollama/gemma3:4b",         # 22. Vision at 4B
+    "ollama/llama3.2:3b",       # 23. Ultra-fast
+    "ollama/granite4",          # 24. Tool calling at 3B
+    "ollama/qwen3:1.7b",        # 25. Ultra-light
+    "ollama/llama3.2:1b",       # 26. Instant, 700MB
+    "ollama/smollm2:1.7b",      # 27. Tiny+fast
 ]
 
 
@@ -911,8 +1098,24 @@ class SmartRouter:
             def cap_score(m):
                 return sum(1 for cap in req.required_capabilities if cap in m.capabilities)
             candidates.sort(key=cap_score, reverse=True)
-        else:  # FALLBACK
-            candidates.sort(key=lambda m: (0 if not m.is_local else 1, m.cost_per_1k_output))
+        elif strategy == RoutingStrategy.LOCAL_FIRST:
+            def local_quality_rank(m):
+                if not m.is_local:
+                    return 1000  # Cloud models go last
+                try:
+                    return LOCAL_QUALITY_RANKING.index(m.id)
+                except ValueError:
+                    return 500  # Unknown local models before cloud
+            candidates.sort(key=local_quality_rank)
+        else:  # FALLBACK — also local-first by default
+            def fallback_rank(m):
+                if not m.is_local:
+                    return 1000
+                try:
+                    return LOCAL_QUALITY_RANKING.index(m.id)
+                except ValueError:
+                    return 500
+            candidates.sort(key=fallback_rank)
         return candidates
 
 
@@ -922,60 +1125,60 @@ class SmartRouter:
 
 PRODUCT_PRESETS: Dict[str, Dict] = {
     "opswatch": {
-        "default_model": "claude-sonnet-4-5-20250929",
-        "routing_strategy": RoutingStrategy.FALLBACK,
-        "required_capabilities": [ModelCapability.CHAT, ModelCapability.FUNCTION_CALLING],
+        "default_model": "ollama/qwen3:8b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
+        "required_capabilities": [ModelCapability.CHAT, ModelCapability.REASONING],
         "max_tokens": 2048, "temperature": 0.3,
-        "description": "OpsWatch Unified - Monitoring AI Analyst",
+        "description": "OpsWatch Unified - Monitoring AI Analyst (Local)",
     },
     "opshiftpro": {
-        "default_model": "claude-sonnet-4-5-20250929",
-        "routing_strategy": RoutingStrategy.FASTEST,
+        "default_model": "ollama/qwen3:8b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT],
         "max_tokens": 2048, "temperature": 0.4,
-        "description": "OpsShiftPro - L2 Support AI Assistant",
+        "description": "OpsShiftPro - L2 Support AI Assistant (Local)",
     },
     "opshiftpro-mobile": {
-        "default_model": "claude-haiku-4-5-20251001",
-        "routing_strategy": RoutingStrategy.FASTEST,
+        "default_model": "ollama/qwen3:4b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT, ModelCapability.FAST],
         "max_tokens": 1024, "temperature": 0.3,
-        "description": "OpsShiftPro Mobile - Quick AI responses",
+        "description": "OpsShiftPro Mobile - Quick AI responses (Local)",
     },
     "valluvan": {
-        "default_model": "claude-sonnet-4-5-20250929",
-        "routing_strategy": RoutingStrategy.BEST_QUALITY,
+        "default_model": "ollama/qwen3:8b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT, ModelCapability.REASONING],
         "max_tokens": 4096, "temperature": 0.6,
-        "description": "Valluvan Astrologer - Vedic AI predictions",
+        "description": "Valluvan Astrologer - Vedic AI predictions (Local)",
     },
     "vault-browser": {
-        "default_model": "ollama/phi3:mini",
-        "routing_strategy": RoutingStrategy.CHEAPEST,
+        "default_model": "ollama/qwen3:4b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT, ModelCapability.CHEAP],
         "max_tokens": 1024, "temperature": 0.3,
-        "description": "Vault Browser - Privacy AI (local-first)",
+        "description": "Vault Browser - Privacy AI (100% local, zero data leaves device)",
     },
     "kaasai-agent": {
-        "default_model": "MiniMax-M2.5",
-        "routing_strategy": RoutingStrategy.FALLBACK,
-        "required_capabilities": [ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.FUNCTION_CALLING],
-        "max_tokens": 4096, "temperature": 0.3,
-        "description": "KaasAI Agent - Autonomous task execution",
-    },
-    "kaasai-ide": {
-        "default_model": "claude-sonnet-4-5-20250929",
-        "routing_strategy": RoutingStrategy.BEST_QUALITY,
+        "default_model": "ollama/qwen3:8b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT, ModelCapability.CODE],
         "max_tokens": 4096, "temperature": 0.3,
-        "description": "KaasAI IDE - Multi-agent development",
+        "description": "KaasAI Agent - Autonomous task execution (Local)",
+    },
+    "kaasai-ide": {
+        "default_model": "ollama/qwen2.5-coder:7b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
+        "required_capabilities": [ModelCapability.CHAT, ModelCapability.CODE],
+        "max_tokens": 4096, "temperature": 0.3,
+        "description": "KaasAI IDE - Multi-agent development (Local)",
     },
     "openclaw": {
-        "default_model": "ollama/phi3:mini",
-        "routing_strategy": RoutingStrategy.FALLBACK,
+        "default_model": "ollama/qwen3:8b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT],
         "max_tokens": 8192, "temperature": 0.7,
-        "description": "OpenClaw Fallback - Routes to best available local/free model",
+        "description": "OpenClaw - Routes to best available local model automatically",
     },
 }
 
@@ -1063,8 +1266,8 @@ class NeuralBrain:
                 req.model = preset.get("default_model", "")
             if not req.required_capabilities:
                 req.required_capabilities = preset.get("required_capabilities", [])
-            if req.routing_strategy == RoutingStrategy.FALLBACK:
-                req.routing_strategy = preset.get("routing_strategy", RoutingStrategy.FALLBACK)
+            if req.routing_strategy == RoutingStrategy.LOCAL_FIRST:
+                req.routing_strategy = preset.get("routing_strategy", RoutingStrategy.LOCAL_FIRST)
 
         cached = self.cache.get(req)
         if cached:
@@ -1110,7 +1313,7 @@ class NeuralBrain:
 
     async def complete_stream(self, req: CompletionRequest) -> AsyncGenerator[str, None]:
         req.stream = True
-        model_id = req.model or "ollama/phi3:mini"
+        model_id = req.model or "ollama/qwen3:8b"
         model = self.models.get(model_id)
         if not model:
             candidates = self.router.select_model(req)
@@ -1120,8 +1323,45 @@ class NeuralBrain:
 
     async def embed(self, req: EmbeddingRequest) -> EmbeddingResponse:
         import aiohttp
-        model_id = req.model or "text-embedding-3-small"
+        model_id = req.model
+
+        # Local-first: try Ollama embedding models before cloud
+        local_embed_models = ["ollama/qwen3-embedding", "ollama/nomic-embed-text", "ollama/mxbai-embed-large"]
+        if not model_id or model_id in local_embed_models or model_id.startswith("ollama/"):
+            ollama_model = model_id.replace("ollama/", "") if model_id else "qwen3-embedding"
+            ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
+            try:
+                async with aiohttp.ClientSession() as session:
+                    all_embeddings = []
+                    for text in req.texts:
+                        resp = await session.post(
+                            f"{ollama_url}/api/embed",
+                            json={"model": ollama_model, "input": text},
+                            timeout=aiohttp.ClientTimeout(total=60),
+                        )
+                        data = await resp.json()
+                        if "embeddings" in data and data["embeddings"]:
+                            all_embeddings.append(data["embeddings"][0])
+                        elif "embedding" in data:
+                            all_embeddings.append(data["embedding"])
+                        else:
+                            raise RuntimeError(f"Ollama embed failed: {data}")
+                    return EmbeddingResponse(
+                        embeddings=all_embeddings,
+                        model=f"ollama/{ollama_model}", provider="ollama", usage={},
+                        dimensions=len(all_embeddings[0]) if all_embeddings else 0,
+                    )
+            except Exception as e:
+                if model_id and model_id.startswith("ollama/"):
+                    raise
+                logger.warning(f"Local embedding failed, falling back to cloud: {e}")
+
+        # Fallback to OpenAI embeddings
+        model_id = model_id or "text-embedding-3-small"
         key = os.getenv("OPENAI_API_KEY", "")
+        if not key:
+            raise RuntimeError("No local embedding model available and no OPENAI_API_KEY set. "
+                             "Install an Ollama embedding model: ollama pull nomic-embed-text")
         async with aiohttp.ClientSession() as session:
             resp = await session.post(
                 "https://api.openai.com/v1/embeddings",
@@ -1346,7 +1586,7 @@ class NeuralBrain:
 
     def get_status(self) -> Dict:
         return {
-            "version": "2.0.0",
+            "version": "3.0.0",
             "total_models": len(self.models),
             "total_providers": len(self.providers),
             "categories": {

@@ -53,16 +53,18 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     status = brain.get_status()
-    logger.info(f"Neural Brain v2.1 started — {status['total_models']} models, {status['total_providers']} providers")
+    logger.info(f"Neural Brain v3.0 started — {status['total_models']} models, {status['total_providers']} providers")
     logger.info(f"Categories: {status['categories']}")
-    logger.info(f"Ensemble Engine active — specialist routing enabled")
+    logger.info(f"Ensemble Engine active — LOCAL-FIRST specialist routing enabled")
     yield
 
 
 app = FastAPI(
     title="KaasAI Neural Brain",
-    description="Unified LLM Gateway v2.1 — 84+ models, 15 providers, 6 categories. Ensemble multi-model orchestration.",
-    version="2.1.0",
+    description="Local-First LLM Gateway v3.0 — 100+ models, 15 providers, local-first routing. "
+                "Zero API keys needed. Runs on any hardware with Ollama. "
+                "Ensemble multi-model orchestration with auto-detection of best local models.",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
@@ -84,7 +86,7 @@ class ChatRequest(BaseModel):
     stream: bool = False
     tools: List[Dict] = []
     product: str = ""
-    routing_strategy: str = "fallback"
+    routing_strategy: str = "local_first"
     required_capabilities: List[str] = []
     max_cost_per_request: float = 0.0
     tags: Dict[str, str] = {}
@@ -126,7 +128,7 @@ class ModelAdd(BaseModel):
 class ProductRegister(BaseModel):
     product_name: str
     default_model: str = ""
-    routing_strategy: str = "fallback"
+    routing_strategy: str = "local_first"
     required_capabilities: List[str] = []
     max_tokens: int = 4096
     temperature: float = 0.7
@@ -143,7 +145,7 @@ async def health():
     return {
         "status": "ok",
         "service": "kaasai-neural-brain",
-        "version": "2.1.0",
+        "version": "3.0.0",
         "providers": sum(1 for p in brain.providers.values() if p.enabled),
         "models": len(brain.models),
         "ensemble": True,
@@ -251,7 +253,7 @@ async def chat_completions(request: Request, body: ChatRequest):
     try:
         req.routing_strategy = RoutingStrategy(body.routing_strategy)
     except ValueError:
-        req.routing_strategy = RoutingStrategy.FALLBACK
+        req.routing_strategy = RoutingStrategy.LOCAL_FIRST
     for cap_str in body.required_capabilities:
         try:
             req.required_capabilities.append(ModelCapability(cap_str))
@@ -435,7 +437,7 @@ async def register_product(body: ProductRegister):
     preset = {"default_model": body.default_model, "description": body.description,
               "max_tokens": body.max_tokens, "temperature": body.temperature}
     try: preset["routing_strategy"] = RoutingStrategy(body.routing_strategy)
-    except ValueError: preset["routing_strategy"] = RoutingStrategy.FALLBACK
+    except ValueError: preset["routing_strategy"] = RoutingStrategy.LOCAL_FIRST
     caps = []
     for c in body.required_capabilities:
         try: caps.append(ModelCapability(c))
