@@ -1575,12 +1575,13 @@ class NeuralBrain:
             messages.extend(req.messages)
             # Performance: keep_alive=300s keeps model loaded in GPU for fast subsequent calls
             body = {"model": model_name, "messages": messages, "stream": False,
-                    "keep_alive": "5m",
-                    "options": {"temperature": req.temperature, "num_predict": req.max_tokens,
+                    "keep_alive": "30m",
+                    "options": {"temperature": req.temperature, "num_predict": min(req.max_tokens, 2048),
+                                "num_ctx": 4096,  # Limit context to reduce VRAM usage
                                 "num_thread": 0}}  # 0 = auto-detect optimal threads
             session = await self._get_session("ollama")
             resp = await session.post(f"{endpoint}/api/chat", json=body,
-                                     timeout=aiohttp.ClientTimeout(total=120))
+                                     timeout=aiohttp.ClientTimeout(total=30))
             data = await resp.json()
             return CompletionResponse(
                 id="", content=data.get("message", {}).get("content", ""),
@@ -1653,8 +1654,9 @@ class NeuralBrain:
             if req.system: messages.append({"role": "system", "content": req.system})
             messages.extend(req.messages)
             body = {"model": model_name, "messages": messages, "stream": True,
-                    "keep_alive": "5m",
-                    "options": {"temperature": req.temperature, "num_predict": req.max_tokens,
+                    "keep_alive": "30m",
+                    "options": {"temperature": req.temperature, "num_predict": min(req.max_tokens, 2048),
+                                "num_ctx": 4096,
                                 "num_thread": 0}}
             session = await self._get_session("ollama")
             async with session.post(f"{endpoint}/api/chat", json=body,
@@ -1775,13 +1777,14 @@ class NeuralBrain:
         return pulled
 
     async def warmup_models(self, models: List[str] = None) -> List[str]:
-        """Send tiny requests concurrently to pre-load models into GPU memory for <2s response times."""
+        """Pre-load models into GPU memory for <2s response times."""
         if not models:
-            # Warm up the most commonly used models
-            models = ["ollama/qwen3:8b", "ollama/qwen3:4b"]
+            # Warm up just the fast model — only 1 model to avoid VRAM contention
+            fast_candidates = ["ollama/qwen3:4b", "ollama/llama3.2:3b", "ollama/phi3:mini"]
+            models = [m for m in fast_candidates if m in self._installed_ollama_models][:1]
 
         # Filter to only installed models
-        to_warm = [m for m in models if m in self._installed_ollama_models or m not in self.models]
+        to_warm = [m for m in models if m in self._installed_ollama_models]
 
         async def _warm_one(model_id: str) -> Optional[str]:
             try:

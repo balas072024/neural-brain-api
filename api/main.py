@@ -66,6 +66,16 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
+    # Preload the fast model immediately for instant first response
+    async def _warmup():
+        try:
+            warmed = await brain.warmup_models()
+            if warmed:
+                logger.info(f"Fast model preloaded: {warmed}")
+        except Exception:
+            pass
+    asyncio.create_task(_warmup())
+
     # Auto-pull essential models if not installed (runs in background)
     if os.getenv("AUTO_PULL_MODELS", "true").lower() == "true":
         async def _background_pull():
@@ -73,10 +83,6 @@ async def lifespan(app: FastAPI):
             if pulled:
                 logger.info(f"Auto-pulled {len(pulled)} models: {pulled}")
                 await brain.discover_ollama_models()  # Refresh after pull
-                # Warm up freshly pulled models for <2s responses
-                warmed = await brain.warmup_models()
-                if warmed:
-                    logger.info(f"Warmed up: {warmed}")
                 # Re-scan quantization after pulling
                 if brain.quantization:
                     await brain.quantization.scan_models()
@@ -257,7 +263,7 @@ class SimpleChatRequest(BaseModel):
     speed: str = "fast"  # "fast" (<2s), "medium" (2-10s), "thinking" (deep reasoning)
     system: str = ""
     temperature: float = 0.7
-    max_tokens: int = 4096
+    max_tokens: int = 512  # Default 512 for fast responses (use higher for thinking)
 
 def _is_installed(model_id: str) -> bool:
     """Check if a model is actually installed in Ollama (not just registered)."""
@@ -288,10 +294,16 @@ async def simple_chat(body: SimpleChatRequest):
                     model = m_id
                     break
 
+    # Auto-set max_tokens based on speed tier if user didn't override
+    max_tokens = body.max_tokens
+    if max_tokens == 512:  # Default, auto-adjust per tier
+        tier = body.speed.lower() if body.speed else "fast"
+        max_tokens = {"fast": 256, "medium": 512, "thinking": 2048}.get(tier, 512)
+
     messages = [{"role": "user", "content": body.message}]
     req = CompletionRequest(
         messages=messages, model=model, system=body.system,
-        temperature=body.temperature, max_tokens=body.max_tokens,
+        temperature=body.temperature, max_tokens=max_tokens,
     )
     req.routing_strategy = RoutingStrategy.LOCAL_FIRST
     try:
