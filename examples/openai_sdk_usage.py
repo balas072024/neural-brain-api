@@ -1,25 +1,28 @@
 """
-Neural Brain API — OpenAI SDK Compatibility
+Neural Brain API — OpenAI SDK Compatibility (100% Local)
 
 Neural Brain is a drop-in replacement for OpenAI's API.
-Point the OpenAI SDK at Neural Brain and it just works.
+Point the OpenAI SDK at Neural Brain and it just works —
+all running locally with Ollama, no API keys needed.
 
 Prerequisites:
     pip install openai
-    # Start Neural Brain: python -m uvicorn api.main:app --port 8200
+    ollama pull qwen3:8b
+    python -m uvicorn api.main:app --port 8200
 """
 from openai import OpenAI
 
-# Point OpenAI SDK at Neural Brain
+# Point OpenAI SDK at Neural Brain — no API key needed!
 client = OpenAI(
     base_url="http://localhost:8200/api/v1",
-    api_key="not-needed"  # Neural Brain handles auth per-provider
+    api_key="not-needed"  # 100% local, no auth required
 )
 
 
-# ═══ Standard Chat ═══
+# ═══ Standard Chat (routes to best local model) ═══
+print("=== Chat ===")
 response = client.chat.completions.create(
-    model="ensemble/smart",  # Auto-routes to best model
+    model="ensemble/smart",  # Auto-classifies and routes locally
     messages=[
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "Explain what a load balancer does."}
@@ -30,7 +33,17 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 
 
-# ═══ Streaming ═══
+# ═══ Specific Local Model ═══
+print("\n=== Specific Model ===")
+response = client.chat.completions.create(
+    model="ollama/qwen3:8b",
+    messages=[{"role": "user", "content": "What is the Fibonacci sequence?"}],
+)
+print(response.choices[0].message.content[:200])
+
+
+# ═══ Streaming (native Ollama streaming) ═══
+print("\n=== Streaming ===")
 stream = client.chat.completions.create(
     model="ensemble/smart",
     messages=[{"role": "user", "content": "Write a haiku about programming"}],
@@ -42,10 +55,10 @@ for chunk in stream:
 print()
 
 
-# ═══ Embeddings ═══
-# Note: requires OpenAI API key configured in Neural Brain
+# ═══ Local Embeddings (no OpenAI key needed) ═══
+print("\n=== Local Embeddings ===")
 embeddings = client.embeddings.create(
-    model="text-embedding-3-small",
+    model="ollama/nomic-embed-text",  # Runs locally
     input=["Neural Brain is awesome", "LLM gateway routing"]
 )
 print(f"Embedding dimensions: {len(embeddings.data[0].embedding)}")

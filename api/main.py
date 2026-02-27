@@ -46,17 +46,34 @@ ensemble = EnsembleEngine(brain)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Discover what's already installed
     try:
         models = await brain.discover_ollama_models()
         if models:
-            logger.info(f"Discovered {len(models)} Ollama models: {models}")
+            logger.info(f"Discovered {len(models)} Ollama models")
     except Exception:
         pass
+
+    # Auto-pull essential models if not installed (runs in background)
+    if os.getenv("AUTO_PULL_MODELS", "true").lower() == "true":
+        async def _background_pull():
+            pulled = await brain.auto_pull_models()
+            if pulled:
+                logger.info(f"Auto-pulled {len(pulled)} models: {pulled}")
+                await brain.discover_ollama_models()  # Refresh after pull
+                # Warm up freshly pulled models
+                warmed = await brain.warmup_models()
+                if warmed:
+                    logger.info(f"Warmed up: {warmed}")
+        asyncio.create_task(_background_pull())
+
     status = brain.get_status()
     logger.info(f"Neural Brain v3.0 started — {status['total_models']} models, {status['total_providers']} providers")
     logger.info(f"Categories: {status['categories']}")
     logger.info(f"Ensemble Engine active — LOCAL-FIRST specialist routing enabled")
     yield
+    # Cleanup connection pools on shutdown
+    await brain.close()
 
 
 app = FastAPI(

@@ -1196,7 +1196,26 @@ class NeuralBrain:
         self.usage = UsageTracker()
         self.product_presets = dict(PRODUCT_PRESETS)
         self._rate_counters: Dict[str, List[float]] = defaultdict(list)
+        self._sessions: Dict[str, Any] = {}  # Connection pool: provider → aiohttp.ClientSession
+        self._installed_ollama_models: set = set()  # Track what's actually installed
         self._auto_configure()
+
+    async def _get_session(self, provider: str = "default") -> Any:
+        """Reuse aiohttp sessions per provider for connection pooling."""
+        import aiohttp
+        session = self._sessions.get(provider)
+        if session is None or session.closed:
+            connector = aiohttp.TCPConnector(limit=100, limit_per_host=30, ttl_dns_cache=300)
+            session = aiohttp.ClientSession(connector=connector)
+            self._sessions[provider] = session
+        return session
+
+    async def close(self):
+        """Cleanup all sessions on shutdown."""
+        for session in self._sessions.values():
+            if session and not session.closed:
+                await session.close()
+        self._sessions.clear()
 
     def _auto_configure(self):
         env_map = {
@@ -1331,26 +1350,26 @@ class NeuralBrain:
             ollama_model = model_id.replace("ollama/", "") if model_id else "qwen3-embedding"
             ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
             try:
-                async with aiohttp.ClientSession() as session:
-                    all_embeddings = []
-                    for text in req.texts:
-                        resp = await session.post(
-                            f"{ollama_url}/api/embed",
-                            json={"model": ollama_model, "input": text},
-                            timeout=aiohttp.ClientTimeout(total=60),
-                        )
-                        data = await resp.json()
-                        if "embeddings" in data and data["embeddings"]:
-                            all_embeddings.append(data["embeddings"][0])
-                        elif "embedding" in data:
-                            all_embeddings.append(data["embedding"])
-                        else:
-                            raise RuntimeError(f"Ollama embed failed: {data}")
-                    return EmbeddingResponse(
-                        embeddings=all_embeddings,
-                        model=f"ollama/{ollama_model}", provider="ollama", usage={},
-                        dimensions=len(all_embeddings[0]) if all_embeddings else 0,
+                session = await self._get_session("ollama")
+                all_embeddings = []
+                for text in req.texts:
+                    resp = await session.post(
+                        f"{ollama_url}/api/embed",
+                        json={"model": ollama_model, "input": text},
+                        timeout=aiohttp.ClientTimeout(total=60),
                     )
+                    data = await resp.json()
+                    if "embeddings" in data and data["embeddings"]:
+                        all_embeddings.append(data["embeddings"][0])
+                    elif "embedding" in data:
+                        all_embeddings.append(data["embedding"])
+                    else:
+                        raise RuntimeError(f"Ollama embed failed: {data}")
+                return EmbeddingResponse(
+                    embeddings=all_embeddings,
+                    model=f"ollama/{ollama_model}", provider="ollama", usage={},
+                    dimensions=len(all_embeddings[0]) if all_embeddings else 0,
+                )
             except Exception as e:
                 if model_id and model_id.startswith("ollama/"):
                     raise
@@ -1362,22 +1381,21 @@ class NeuralBrain:
         if not key:
             raise RuntimeError("No local embedding model available and no OPENAI_API_KEY set. "
                              "Install an Ollama embedding model: ollama pull nomic-embed-text")
-        async with aiohttp.ClientSession() as session:
-            resp = await session.post(
-                "https://api.openai.com/v1/embeddings",
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={"model": model_id, "input": req.texts},
-                timeout=aiohttp.ClientTimeout(total=60),
-            )
-            data = await resp.json()
-            return EmbeddingResponse(
-                embeddings=[d["embedding"] for d in data.get("data", [])],
-                model=model_id, provider="openai", usage=data.get("usage", {}),
-                dimensions=len(data["data"][0]["embedding"]) if data.get("data") else 0,
-            )
+        session = await self._get_session("openai")
+        resp = await session.post(
+            "https://api.openai.com/v1/embeddings",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={"model": model_id, "input": req.texts},
+            timeout=aiohttp.ClientTimeout(total=60),
+        )
+        data = await resp.json()
+        return EmbeddingResponse(
+            embeddings=[d["embedding"] for d in data.get("data", [])],
+            model=model_id, provider="openai", usage=data.get("usage", {}),
+            dimensions=len(data["data"][0]["embedding"]) if data.get("data") else 0,
+        )
 
     async def _call_provider(self, model: ModelConfig, req: CompletionRequest) -> CompletionResponse:
-        import aiohttp
         start = time.time()
         request_id = req.request_id or hashlib.md5(f"{time.time()}".encode()).hexdigest()[:12]
         if model.provider == ProviderType.ANTHROPIC:
@@ -1403,27 +1421,27 @@ class NeuralBrain:
         if req.system: body["system"] = req.system
         if req.tools: body["tools"] = req.tools
         if req.stop: body["stop_sequences"] = req.stop
-        async with aiohttp.ClientSession() as session:
-            resp = await session.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json=body, timeout=aiohttp.ClientTimeout(total=120),
-            )
-            data = await resp.json()
-            if resp.status != 200:
-                raise RuntimeError(f"Anthropic error {resp.status}: {data.get('error', {}).get('message', str(data))}")
-            content = ""
-            tool_calls = []
-            for block in data.get("content", []):
-                if block["type"] == "text": content += block["text"]
-                elif block["type"] == "tool_use": tool_calls.append(block)
-            return CompletionResponse(
-                id=data.get("id", ""), content=content, model=model.id, provider="anthropic",
-                usage={"prompt_tokens": data.get("usage", {}).get("input_tokens", 0),
-                       "completion_tokens": data.get("usage", {}).get("output_tokens", 0),
-                       "total_tokens": data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0)},
-                finish_reason=data.get("stop_reason", "end_turn"), tool_calls=tool_calls,
-            )
+        session = await self._get_session("anthropic")
+        resp = await session.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+            json=body, timeout=aiohttp.ClientTimeout(total=120),
+        )
+        data = await resp.json()
+        if resp.status != 200:
+            raise RuntimeError(f"Anthropic error {resp.status}: {data.get('error', {}).get('message', str(data))}")
+        content = ""
+        tool_calls = []
+        for block in data.get("content", []):
+            if block["type"] == "text": content += block["text"]
+            elif block["type"] == "tool_use": tool_calls.append(block)
+        return CompletionResponse(
+            id=data.get("id", ""), content=content, model=model.id, provider="anthropic",
+            usage={"prompt_tokens": data.get("usage", {}).get("input_tokens", 0),
+                   "completion_tokens": data.get("usage", {}).get("output_tokens", 0),
+                   "total_tokens": data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0)},
+            finish_reason=data.get("stop_reason", "end_turn"), tool_calls=tool_calls,
+        )
 
     async def _call_google(self, model: ModelConfig, req: CompletionRequest) -> CompletionResponse:
         import aiohttp
@@ -1433,19 +1451,19 @@ class NeuralBrain:
                      "parts": [{"text": msg["content"]}]} for msg in req.messages]
         body = {"contents": contents, "generationConfig": {"temperature": req.temperature, "maxOutputTokens": req.max_tokens}}
         if req.system: body["systemInstruction"] = {"parts": [{"text": req.system}]}
-        async with aiohttp.ClientSession() as session:
-            resp = await session.post(url, json=body, timeout=aiohttp.ClientTimeout(total=120))
-            data = await resp.json()
-            if "error" in data:
-                raise RuntimeError(f"Google error: {data['error'].get('message', str(data))}")
-            content = data["candidates"][0]["content"]["parts"][0]["text"]
-            usage = data.get("usageMetadata", {})
-            return CompletionResponse(
-                id="", content=content, model=model.id, provider="google",
-                usage={"prompt_tokens": usage.get("promptTokenCount", 0),
-                       "completion_tokens": usage.get("candidatesTokenCount", 0),
-                       "total_tokens": usage.get("totalTokenCount", 0)},
-            )
+        session = await self._get_session("google")
+        resp = await session.post(url, json=body, timeout=aiohttp.ClientTimeout(total=120))
+        data = await resp.json()
+        if "error" in data:
+            raise RuntimeError(f"Google error: {data['error'].get('message', str(data))}")
+        content = data["candidates"][0]["content"]["parts"][0]["text"]
+        usage = data.get("usageMetadata", {})
+        return CompletionResponse(
+            id="", content=content, model=model.id, provider="google",
+            usage={"prompt_tokens": usage.get("promptTokenCount", 0),
+                   "completion_tokens": usage.get("candidatesTokenCount", 0),
+                   "total_tokens": usage.get("totalTokenCount", 0)},
+        )
 
     async def _call_local(self, model: ModelConfig, req: CompletionRequest) -> CompletionResponse:
         import aiohttp
@@ -1457,17 +1475,17 @@ class NeuralBrain:
             messages.extend(req.messages)
             body = {"model": model_name, "messages": messages, "stream": False,
                     "options": {"temperature": req.temperature, "num_predict": req.max_tokens}}
-            async with aiohttp.ClientSession() as session:
-                resp = await session.post(f"{endpoint}/api/chat", json=body,
-                                         timeout=aiohttp.ClientTimeout(total=300))
-                data = await resp.json()
-                return CompletionResponse(
-                    id="", content=data.get("message", {}).get("content", ""),
-                    model=model.id, provider="ollama",
-                    usage={"prompt_tokens": data.get("prompt_eval_count", 0),
-                           "completion_tokens": data.get("eval_count", 0),
-                           "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0)},
-                )
+            session = await self._get_session("ollama")
+            resp = await session.post(f"{endpoint}/api/chat", json=body,
+                                     timeout=aiohttp.ClientTimeout(total=300))
+            data = await resp.json()
+            return CompletionResponse(
+                id="", content=data.get("message", {}).get("content", ""),
+                model=model.id, provider="ollama",
+                usage={"prompt_tokens": data.get("prompt_eval_count", 0),
+                       "completion_tokens": data.get("eval_count", 0),
+                       "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0)},
+            )
         else:
             return await self._call_openai_compatible(model, req)
 
@@ -1487,18 +1505,18 @@ class NeuralBrain:
         headers = {"Content-Type": "application/json"}
         if key: headers["Authorization"] = f"Bearer {key}"
         if provider and provider.headers: headers.update(provider.headers)
-        async with aiohttp.ClientSession() as session:
-            resp = await session.post(f"{base_url}/chat/completions", headers=headers, json=body,
-                                     timeout=aiohttp.ClientTimeout(total=provider.timeout_seconds if provider else 120))
-            data = await resp.json()
-            if resp.status != 200:
-                raise RuntimeError(f"{model.provider.value} error: {data}")
-            choice = data["choices"][0]
-            return CompletionResponse(
-                id=data.get("id", ""), content=choice["message"].get("content", ""),
-                model=model.id, provider=model.provider.value,
-                usage=data.get("usage", {}), finish_reason=choice.get("finish_reason", "stop"),
-            )
+        session = await self._get_session(model.provider.value)
+        resp = await session.post(f"{base_url}/chat/completions", headers=headers, json=body,
+                                 timeout=aiohttp.ClientTimeout(total=provider.timeout_seconds if provider else 120))
+        data = await resp.json()
+        if resp.status != 200:
+            raise RuntimeError(f"{model.provider.value} error: {data}")
+        choice = data["choices"][0]
+        return CompletionResponse(
+            id=data.get("id", ""), content=choice["message"].get("content", ""),
+            model=model.id, provider=model.provider.value,
+            usage=data.get("usage", {}), finish_reason=choice.get("finish_reason", "stop"),
+        )
 
     async def _stream_provider(self, model: ModelConfig, req: CompletionRequest) -> AsyncGenerator[str, None]:
         import aiohttp
@@ -1508,21 +1526,48 @@ class NeuralBrain:
             body = {"model": model.id, "max_tokens": req.max_tokens,
                     "temperature": req.temperature, "messages": req.messages, "stream": True}
             if req.system: body["system"] = req.system
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                    json=body,
-                ) as resp:
-                    async for line in resp.content:
-                        text = line.decode("utf-8").strip()
-                        if text.startswith("data: "):
-                            try:
-                                event = json.loads(text[6:])
-                                if event.get("type") == "content_block_delta":
-                                    yield event["delta"].get("text", "")
-                            except json.JSONDecodeError:
-                                pass
+            session = await self._get_session("anthropic")
+            async with session.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json=body,
+            ) as resp:
+                async for line in resp.content:
+                    text = line.decode("utf-8").strip()
+                    if text.startswith("data: "):
+                        try:
+                            event = json.loads(text[6:])
+                            if event.get("type") == "content_block_delta":
+                                yield event["delta"].get("text", "")
+                        except json.JSONDecodeError:
+                            pass
+
+        elif model.provider == ProviderType.OLLAMA:
+            # Native Ollama streaming — faster than OpenAI-compatible format
+            endpoint = model.endpoint or "http://localhost:11434"
+            model_name = model.id.replace("ollama/", "")
+            messages = []
+            if req.system: messages.append({"role": "system", "content": req.system})
+            messages.extend(req.messages)
+            body = {"model": model_name, "messages": messages, "stream": True,
+                    "options": {"temperature": req.temperature, "num_predict": req.max_tokens}}
+            session = await self._get_session("ollama")
+            async with session.post(f"{endpoint}/api/chat", json=body,
+                                    timeout=aiohttp.ClientTimeout(total=300)) as resp:
+                async for line in resp.content:
+                    text = line.decode("utf-8").strip()
+                    if not text:
+                        continue
+                    try:
+                        chunk = json.loads(text)
+                        content = chunk.get("message", {}).get("content", "")
+                        if content:
+                            yield content
+                        if chunk.get("done", False):
+                            break
+                    except json.JSONDecodeError:
+                        pass
+
         else:
             provider = self.providers.get(model.provider)
             base_url = model.endpoint or (provider.base_url if provider else "https://api.openai.com/v1")
@@ -1535,17 +1580,17 @@ class NeuralBrain:
                     "max_tokens": req.max_tokens, "stream": True}
             headers = {"Content-Type": "application/json"}
             if key: headers["Authorization"] = f"Bearer {key}"
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{base_url}/chat/completions", headers=headers, json=body) as resp:
-                    async for line in resp.content:
-                        text = line.decode("utf-8").strip()
-                        if text.startswith("data: ") and text != "data: [DONE]":
-                            try:
-                                chunk = json.loads(text[6:])
-                                delta = chunk["choices"][0].get("delta", {}).get("content", "")
-                                if delta: yield delta
-                            except (json.JSONDecodeError, KeyError, IndexError):
-                                pass
+            session = await self._get_session(model.provider.value)
+            async with session.post(f"{base_url}/chat/completions", headers=headers, json=body) as resp:
+                async for line in resp.content:
+                    text = line.decode("utf-8").strip()
+                    if text.startswith("data: ") and text != "data: [DONE]":
+                        try:
+                            chunk = json.loads(text[6:])
+                            delta = chunk["choices"][0].get("delta", {}).get("content", "")
+                            if delta: yield delta
+                        except (json.JSONDecodeError, KeyError, IndexError):
+                            pass
 
     def _calculate_cost(self, model: ModelConfig, usage: Dict) -> float:
         input_tokens = usage.get("prompt_tokens", 0)
@@ -1565,24 +1610,87 @@ class NeuralBrain:
         import aiohttp
         url = os.getenv("OLLAMA_URL", "http://localhost:11434")
         try:
-            async with aiohttp.ClientSession() as session:
-                resp = await session.get(f"{url}/api/tags", timeout=aiohttp.ClientTimeout(total=5))
-                data = await resp.json()
-                models = []
-                for m in data.get("models", []):
-                    name = m["name"]
-                    model_id = f"ollama/{name}"
-                    if model_id not in self.models:
-                        self.add_custom_model(
-                            model_id=model_id, provider="ollama", name=f"{name} (Local)",
-                            endpoint=url, is_local=True,
-                            capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.CHEAP],
-                        )
-                    models.append(model_id)
-                return models
+            session = await self._get_session("ollama")
+            resp = await session.get(f"{url}/api/tags", timeout=aiohttp.ClientTimeout(total=5))
+            data = await resp.json()
+            models = []
+            for m in data.get("models", []):
+                name = m["name"]
+                model_id = f"ollama/{name}"
+                self._installed_ollama_models.add(model_id)
+                if model_id not in self.models:
+                    self.add_custom_model(
+                        model_id=model_id, provider="ollama", name=f"{name} (Local)",
+                        endpoint=url, is_local=True,
+                        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.CHEAP],
+                    )
+                models.append(model_id)
+            logger.info(f"Ollama: {len(models)} models installed")
+            return models
         except Exception as e:
             logger.warning(f"Ollama discovery failed: {e}")
             return []
+
+    async def auto_pull_models(self, models: List[str] = None) -> List[str]:
+        """Auto-pull essential Ollama models that aren't installed yet."""
+        import aiohttp
+        url = os.getenv("OLLAMA_URL", "http://localhost:11434")
+
+        # Default: pull the most efficient models for each tier
+        if not models:
+            models = [
+                "qwen3:8b",        # Best general 8B — sweet spot
+                "qwen3:4b",        # Fast lightweight
+                "qwen2.5-coder:7b",# Code specialist
+                "deepseek-r1:8b",  # Reasoning
+                "nomic-embed-text", # Embeddings
+            ]
+
+        pulled = []
+        for model_name in models:
+            model_id = f"ollama/{model_name}"
+            if model_id in self._installed_ollama_models:
+                continue
+            try:
+                logger.info(f"Auto-pulling model: {model_name}")
+                session = await self._get_session("ollama")
+                resp = await session.post(
+                    f"{url}/api/pull",
+                    json={"name": model_name, "stream": False},
+                    timeout=aiohttp.ClientTimeout(total=1800),  # 30 min for large models
+                )
+                if resp.status == 200:
+                    self._installed_ollama_models.add(model_id)
+                    pulled.append(model_name)
+                    logger.info(f"Pulled: {model_name}")
+                else:
+                    logger.warning(f"Failed to pull {model_name}: HTTP {resp.status}")
+            except Exception as e:
+                logger.warning(f"Auto-pull {model_name} failed: {e}")
+        return pulled
+
+    async def warmup_models(self, models: List[str] = None) -> List[str]:
+        """Send a tiny request to pre-load models into memory."""
+        if not models:
+            # Warm up the most commonly used models
+            models = ["ollama/qwen3:8b", "ollama/qwen3:4b"]
+
+        warmed = []
+        for model_id in models:
+            if model_id not in self._installed_ollama_models and model_id in self.models:
+                # Model is in catalog but we don't know if installed — skip
+                continue
+            try:
+                req = CompletionRequest(
+                    messages=[{"role": "user", "content": "hi"}],
+                    model=model_id, max_tokens=1, temperature=0,
+                )
+                await self.complete(req)
+                warmed.append(model_id)
+                logger.info(f"Warmed up: {model_id}")
+            except Exception:
+                pass
+        return warmed
 
     def get_status(self) -> Dict:
         return {
