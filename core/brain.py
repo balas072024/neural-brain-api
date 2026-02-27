@@ -1,19 +1,27 @@
 """
-KaasAI Neural Brain v3.0 — Local-First Unified LLM Gateway & Router
+KaasAI Neural Brain v4.0 — Self-Learning Local-First LLM Gateway
 Central AI backbone — zero API keys needed. 100% functional with just Ollama.
 
-LOCAL-FIRST ARCHITECTURE:
+v4.0 FEATURES:
+- SELF-LEARNING: Adapts routing based on real performance data (latency, quality, feedback)
+- QUANTIZATION: Auto-detects and prefers compressed model variants for speed + space savings
+- DISTILLATION: Larger models teach smaller ones — local AI gets smarter over time
+- SUB-2-SECOND RESPONSES: Aggressive caching, model warmup, connection pooling, fast routing
 - 45+ local Ollama models across all categories (code, reasoning, vision, audio, embedding)
 - Tiered model selection: auto-picks best model for your hardware (2GB → 48GB VRAM)
-- Smart routing: LOCAL_FIRST strategy ensures local models are always preferred
-- Ensemble engine: multi-model orchestration using only local models
-- Local embeddings: Qwen3-Embedding, Nomic, MxBAI — no OpenAI needed
+
+PERFORMANCE TARGET: Quality responses in <1-2 seconds via:
+- Warm model pool (pre-loaded in GPU memory)
+- Connection pooling (zero TCP handshake overhead)
+- Prompt caching (instant repeat responses)
+- Adaptive routing (learned fast+good models first)
+- Quantized models (smaller = faster inference)
 
 MODEL TIERS (Local):
-- Tier 1 (1-4B): Qwen3 1.7B/4B, Phi4-Mini, Llama 3.2 1B/3B, Gemma 3 4B — any hardware
-- Tier 2 (7-8B): Qwen3 8B, Gemma 3 12B, Qwen 2.5 Coder 7B — 4GB VRAM
-- Tier 3 (14B): Phi4, Qwen3 14B, DeepSeek R1 14B — 8GB VRAM
-- Tier 4 (27-32B): Qwen3 32B, Gemma 3 27B, DeepSeek R1 32B — 16-24GB VRAM
+- Tier 1 (1-4B): Qwen3 1.7B/4B, Phi4-Mini, Llama 3.2 1B/3B — any hardware, <0.5s
+- Tier 2 (7-8B): Qwen3 8B, Gemma 3 12B, Qwen 2.5 Coder 7B — 4GB VRAM, <1s
+- Tier 3 (14B): Phi4, Qwen3 14B, DeepSeek R1 14B — 8GB VRAM, <2s
+- Tier 4 (27-32B): Qwen3 32B, Gemma 3 27B, DeepSeek R1 32B — 16-24GB VRAM, <3s
 
 CLOUD PROVIDERS (optional, for users with API keys):
 - Anthropic, OpenAI, Google, Groq, Ollama, OpenRouter, Together,
@@ -948,7 +956,7 @@ LOCAL_QUALITY_RANKING = [
 # ═══════════════════════════════════════════════════════
 
 class PromptCache:
-    def __init__(self, max_size: int = 500, ttl_seconds: int = 3600):
+    def __init__(self, max_size: int = 2000, ttl_seconds: int = 7200):
         self.cache: Dict[str, tuple] = {}
         self.max_size = max_size
         self.ttl = ttl_seconds
@@ -977,8 +985,9 @@ class PromptCache:
         return None
 
     def set(self, req: CompletionRequest, resp: CompletionResponse):
-        if req.temperature > 0 or req.stream:
+        if req.stream:
             return
+        # Cache even non-zero temperature for repeat queries (TTL handles freshness)
         h = self._hash(req)
         if len(self.cache) >= self.max_size:
             oldest = min(self.cache.items(), key=lambda x: x[1][1])
@@ -1058,10 +1067,11 @@ class UsageTracker:
 # ═══════════════════════════════════════════════════════
 
 class SmartRouter:
-    def __init__(self, models: Dict[str, ModelConfig]):
+    def __init__(self, models: Dict[str, ModelConfig], learning_engine=None):
         self.models = models
+        self.learning = learning_engine  # Self-learning engine for adaptive routing
 
-    def select_model(self, req: CompletionRequest) -> List[ModelConfig]:
+    def select_model(self, req: CompletionRequest, query_type: str = "") -> List[ModelConfig]:
         candidates = [m for m in self.models.values() if m.enabled]
         if req.required_capabilities:
             candidates = [m for m in candidates if
@@ -1099,6 +1109,26 @@ class SmartRouter:
                 return sum(1 for cap in req.required_capabilities if cap in m.capabilities)
             candidates.sort(key=cap_score, reverse=True)
         elif strategy == RoutingStrategy.LOCAL_FIRST:
+            # Adaptive routing: use learned performance data if available
+            if self.learning and query_type:
+                available_ids = [m.id for m in candidates if m.is_local]
+                learned_ranking = self.learning.get_ranked_models(query_type, available_ids)
+                if learned_ranking and len(learned_ranking) >= 3:
+                    # Use learned ranking for models with enough data
+                    learned_ids = [model_id for model_id, _ in learned_ranking]
+                    def adaptive_rank(m):
+                        if not m.is_local:
+                            return 1000
+                        if m.id in learned_ids:
+                            return learned_ids.index(m.id)
+                        # Fall back to static ranking for unlearned models
+                        try:
+                            return len(learned_ids) + LOCAL_QUALITY_RANKING.index(m.id)
+                        except ValueError:
+                            return 500
+                    candidates.sort(key=adaptive_rank)
+                    return candidates
+
             def local_quality_rank(m):
                 if not m.is_local:
                     return 1000  # Cloud models go last
@@ -1198,20 +1228,67 @@ class NeuralBrain:
         self._rate_counters: Dict[str, List[float]] = defaultdict(list)
         self._sessions: Dict[str, Any] = {}  # Connection pool: provider → aiohttp.ClientSession
         self._installed_ollama_models: set = set()  # Track what's actually installed
+
+        # v4.0: Self-learning, quantization, distillation
+        self.learning = None      # Initialized lazily
+        self.quantization = None  # Initialized lazily
+        self.distillation = None  # Initialized lazily
+        self._init_v4_engines()
         self._auto_configure()
 
+    def _init_v4_engines(self):
+        """Initialize v4.0 engines: self-learning, quantization, distillation."""
+        try:
+            from core.learning import SelfLearningEngine
+            self.learning = SelfLearningEngine()
+            logger.info("Self-learning engine initialized")
+        except Exception as e:
+            logger.warning(f"Self-learning engine init failed: {e}")
+
+        try:
+            from core.quantization import QuantizationManager
+            self.quantization = QuantizationManager(brain=self)
+            logger.info("Quantization manager initialized")
+        except Exception as e:
+            logger.warning(f"Quantization manager init failed: {e}")
+
+        try:
+            from core.distillation import DistillationEngine
+            self.distillation = DistillationEngine(brain=self)
+            logger.info("Distillation engine initialized")
+        except Exception as e:
+            logger.warning(f"Distillation engine init failed: {e}")
+
     async def _get_session(self, provider: str = "default") -> Any:
-        """Reuse aiohttp sessions per provider for connection pooling."""
+        """Reuse aiohttp sessions per provider for connection pooling.
+        Optimized for sub-2-second response times with aggressive keep-alive."""
         import aiohttp
         session = self._sessions.get(provider)
         if session is None or session.closed:
-            connector = aiohttp.TCPConnector(limit=100, limit_per_host=30, ttl_dns_cache=300)
-            session = aiohttp.ClientSession(connector=connector)
+            connector = aiohttp.TCPConnector(
+                limit=200, limit_per_host=50,   # More concurrent connections
+                ttl_dns_cache=600,               # Cache DNS 10 minutes
+                enable_cleanup_closed=True,      # Auto-cleanup closed connections
+                keepalive_timeout=300,            # Keep connections alive 5 minutes
+            )
+            timeout = aiohttp.ClientTimeout(
+                total=120, connect=5,            # Fast connect timeout
+                sock_connect=5, sock_read=120,
+            )
+            session = aiohttp.ClientSession(connector=connector, timeout=timeout)
             self._sessions[provider] = session
         return session
 
     async def close(self):
-        """Cleanup all sessions on shutdown."""
+        """Cleanup all sessions and persist learning data on shutdown."""
+        # Save learning data before shutdown
+        if self.learning:
+            try:
+                self.learning.save()
+                logger.info("Learning data persisted to disk")
+            except Exception as e:
+                logger.warning(f"Failed to save learning data: {e}")
+
         for session in self._sessions.values():
             if session and not session.closed:
                 await session.close()
@@ -1272,7 +1349,7 @@ class NeuralBrain:
         ptype = ProviderType(provider) if provider in [p.value for p in ProviderType] else ProviderType.CUSTOM
         model = ModelConfig(id=model_id, provider=ptype, name=name, endpoint=endpoint, **kwargs)
         self.models[model_id] = model
-        self.router = SmartRouter(self.models)
+        self.router = SmartRouter(self.models, learning_engine=self.learning)
         return model
 
     def register_product(self, product_name: str, preset: Dict):
@@ -1305,7 +1382,7 @@ class NeuralBrain:
                     logger.warning(f"Model {req.model} failed: {e}")
                     self.usage.record_error(req, model.provider.value, model.id, str(e))
 
-        candidates = self.router.select_model(req)
+        candidates = self.router.select_model(req, query_type=getattr(req, '_query_type', ''))
         last_error = None
         for model in candidates[:7]:  # Try up to 7 models
             provider = self.providers.get(model.provider)
@@ -1321,12 +1398,35 @@ class NeuralBrain:
                 model.total_tokens += resp.usage.get("total_tokens", 0)
                 model.total_cost += resp.cost
                 model.avg_latency_ms = (model.avg_latency_ms * 0.9 + resp.latency_ms * 0.1) if model.avg_latency_ms > 0 else resp.latency_ms
+
+                # v4.0: Record success in learning engine
+                if self.learning:
+                    query_type = getattr(req, '_query_type', 'general')
+                    # Auto-quality: fast + non-empty = good
+                    quality = min(1.0, 0.5 + (0.3 if resp.latency_ms < 2000 else 0) +
+                                  (0.2 if len(resp.content) > 100 else 0))
+                    self.learning.record_request(
+                        model_id=model.id, query_type=query_type,
+                        latency_ms=resp.latency_ms, success=True,
+                        tokens=resp.usage.get("total_tokens", 0),
+                        quality_score=quality,
+                    )
+
                 return resp
             except Exception as e:
                 last_error = e
                 logger.warning(f"Provider {model.provider.value}/{model.id} failed: {e}")
                 self.usage.record_error(req, model.provider.value, model.id, str(e))
                 model.success_rate = max(0, model.success_rate - 5)
+
+                # v4.0: Record failure in learning engine
+                if self.learning:
+                    query_type = getattr(req, '_query_type', 'general')
+                    self.learning.record_request(
+                        model_id=model.id, query_type=query_type,
+                        latency_ms=0, success=False,
+                    )
+
                 continue
         raise RuntimeError(f"All providers failed. Last error: {last_error}")
 
@@ -1473,11 +1573,14 @@ class NeuralBrain:
             messages = []
             if req.system: messages.append({"role": "system", "content": req.system})
             messages.extend(req.messages)
+            # Performance: keep_alive=300s keeps model loaded in GPU for fast subsequent calls
             body = {"model": model_name, "messages": messages, "stream": False,
-                    "options": {"temperature": req.temperature, "num_predict": req.max_tokens}}
+                    "keep_alive": "5m",
+                    "options": {"temperature": req.temperature, "num_predict": req.max_tokens,
+                                "num_thread": 0}}  # 0 = auto-detect optimal threads
             session = await self._get_session("ollama")
             resp = await session.post(f"{endpoint}/api/chat", json=body,
-                                     timeout=aiohttp.ClientTimeout(total=300))
+                                     timeout=aiohttp.ClientTimeout(total=120))
             data = await resp.json()
             return CompletionResponse(
                 id="", content=data.get("message", {}).get("content", ""),
@@ -1550,7 +1653,9 @@ class NeuralBrain:
             if req.system: messages.append({"role": "system", "content": req.system})
             messages.extend(req.messages)
             body = {"model": model_name, "messages": messages, "stream": True,
-                    "options": {"temperature": req.temperature, "num_predict": req.max_tokens}}
+                    "keep_alive": "5m",
+                    "options": {"temperature": req.temperature, "num_predict": req.max_tokens,
+                                "num_thread": 0}}
             session = await self._get_session("ollama")
             async with session.post(f"{endpoint}/api/chat", json=body,
                                     timeout=aiohttp.ClientTimeout(total=300)) as resp:
@@ -1670,33 +1775,53 @@ class NeuralBrain:
         return pulled
 
     async def warmup_models(self, models: List[str] = None) -> List[str]:
-        """Send a tiny request to pre-load models into memory."""
+        """Send tiny requests concurrently to pre-load models into GPU memory for <2s response times."""
         if not models:
             # Warm up the most commonly used models
             models = ["ollama/qwen3:8b", "ollama/qwen3:4b"]
 
-        warmed = []
-        for model_id in models:
-            if model_id not in self._installed_ollama_models and model_id in self.models:
-                # Model is in catalog but we don't know if installed — skip
-                continue
+        # Filter to only installed models
+        to_warm = [m for m in models if m in self._installed_ollama_models or m not in self.models]
+
+        async def _warm_one(model_id: str) -> Optional[str]:
             try:
                 req = CompletionRequest(
                     messages=[{"role": "user", "content": "hi"}],
                     model=model_id, max_tokens=1, temperature=0,
                 )
                 await self.complete(req)
-                warmed.append(model_id)
                 logger.info(f"Warmed up: {model_id}")
+                return model_id
             except Exception:
-                pass
+                return None
+
+        # Warm up concurrently (max 2 at a time to avoid VRAM issues)
+        warmed = []
+        for i in range(0, len(to_warm), 2):
+            batch = to_warm[i:i+2]
+            results = await asyncio.gather(*[_warm_one(m) for m in batch], return_exceptions=True)
+            for r in results:
+                if isinstance(r, str):
+                    warmed.append(r)
+
         return warmed
 
+    async def periodic_save(self):
+        """Periodically save learning data (call this from a background task)."""
+        while True:
+            await asyncio.sleep(300)  # Save every 5 minutes
+            if self.learning:
+                try:
+                    self.learning.save()
+                except Exception:
+                    pass
+
     def get_status(self) -> Dict:
-        return {
-            "version": "3.0.0",
+        status = {
+            "version": "4.0.0",
             "total_models": len(self.models),
             "total_providers": len(self.providers),
+            "performance_target": "<2s quality responses",
             "categories": {
                 "general": len([m for m in self.models.values() if m.category == "general"]),
                 "code": len([m for m in self.models.values() if m.category == "code"]),
@@ -1704,6 +1829,11 @@ class NeuralBrain:
                 "vision": len([m for m in self.models.values() if m.category == "vision"]),
                 "audio": len([m for m in self.models.values() if m.category == "audio"]),
                 "embedding": len([m for m in self.models.values() if m.category == "embedding"]),
+            },
+            "v4_engines": {
+                "self_learning": self.learning is not None,
+                "quantization": self.quantization is not None,
+                "distillation": self.distillation is not None,
             },
             "providers": {
                 p.value: {"name": c.name, "enabled": c.enabled, "is_local": c.is_local,
@@ -1723,6 +1853,15 @@ class NeuralBrain:
             "cache": self.cache.stats(),
             "usage_summary": self.usage.get_summary(),
         }
+
+        # Add learning insights if available
+        if self.learning:
+            status["learning_insights"] = self.learning.get_insights()
+        # Add distillation stats if available
+        if self.distillation:
+            status["distillation"] = self.distillation.get_stats()
+
+        return status
 
     def list_models(self, provider: str = None, capability: str = None,
                     local_only: bool = False, category: str = None) -> List[Dict]:

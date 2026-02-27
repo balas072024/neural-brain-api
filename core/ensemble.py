@@ -1,12 +1,13 @@
 """
-Neural Brain Ensemble Engine v2.0
-Smart multi-model orchestrator — 100% local-first.
+Neural Brain Ensemble Engine v3.0 — Self-Learning Multi-Model Orchestrator
+100% local-first with adaptive specialist routing.
 
 Routes queries to the best available local specialist model
-based on content analysis. Supports any hardware tier from
-2GB VRAM laptops to 48GB+ workstations.
+based on content analysis + learned performance data.
+Supports any hardware tier from 2GB VRAM laptops to 48GB+ workstations.
 
-Auto-detects available models and picks the best one you can run.
+v3.0: Self-learning integration — specialist rankings adapt based on
+observed latency, quality, and user feedback.
 """
 
 import asyncio
@@ -306,6 +307,13 @@ class EnsembleEngine:
             available = [m.id for m in self.brain.models.values()
                         if m.provider.value == "ollama" and m.enabled]
 
+        # v3.0: Rerank using learned performance data if available
+        if hasattr(self.brain, 'learning') and self.brain.learning:
+            learned = self.brain.learning.get_ranked_models(best_type, available)
+            if learned and len(learned) >= 2:
+                # Use learned ranking (best performers first)
+                available = [model_id for model_id, _ in learned]
+
         specialist = available[0] if available else "ollama/phi4:latest"
         fallbacks = available[1:4] if len(available) > 1 else []
 
@@ -323,6 +331,7 @@ class EnsembleEngine:
         qtype = classification.query_type
         self.stats["by_type"][qtype] = self.stats["by_type"].get(qtype, 0) + 1
 
+        self._current_query_type = qtype  # Track for learning engine
         logger.info(f"[Ensemble] '{qtype}' (conf={classification.confidence:.0%}) → {classification.specialist}")
 
         if mode == "fastest":
@@ -368,13 +377,30 @@ class EnsembleEngine:
                 resp = await self._call_model(model_id, messages, system, temperature, max_tokens)
                 if resp and resp.strip():
                     self.stats["by_model"][model_id] = self.stats["by_model"].get(model_id, 0) + 1
+                    latency = (time.time()-start)*1000
+
+                    # v3.0: Record success in learning engine
+                    if hasattr(self.brain, 'learning') and self.brain.learning:
+                        quality = min(1.0, 0.5 + (0.3 if latency < 2000 else 0) +
+                                      (0.2 if len(resp) > 100 else 0))
+                        self.brain.learning.record_request(
+                            model_id=model_id, query_type=classification.query_type,
+                            latency_ms=latency, success=True, quality_score=quality,
+                        )
+
                     return EnsembleResult(content=resp, model_used=model_id,
                                         query_type=classification.query_type,
                                         confidence=classification.confidence,
-                                        latency_ms=(time.time()-start)*1000,
+                                        latency_ms=latency,
                                         models_consulted=models_tried)
             except Exception as e:
                 logger.warning(f"[Ensemble] {model_id} failed: {e}")
+                # v3.0: Record failure in learning engine
+                if hasattr(self.brain, 'learning') and self.brain.learning:
+                    self.brain.learning.record_request(
+                        model_id=model_id, query_type=classification.query_type,
+                        latency_ms=0, success=False,
+                    )
                 continue
         return EnsembleResult(
             content="All local models unavailable. Check Ollama is running.",
@@ -507,6 +533,8 @@ Return verified response directly."""}]
         logger.info(f"[CALL] {model_id} with {len(clean_msgs)} msgs (cleaned from {len(messages)})")
         req = CompletionRequest(messages=clean_msgs, model=model_id, system=system,
                                temperature=temperature, max_tokens=max_tokens)
+        # Pass query type to brain for learning engine tracking
+        req._query_type = getattr(self, '_current_query_type', 'general')
         resp = await self.brain.complete(req)
         return resp.content
 
