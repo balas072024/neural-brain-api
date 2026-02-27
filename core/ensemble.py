@@ -1,11 +1,13 @@
 """
-Neural Brain Ensemble Engine v1.0
-Smart multi-model orchestrator for local Ollama models.
+Neural Brain Ensemble Engine v3.0 — Self-Learning Multi-Model Orchestrator
+100% local-first with adaptive specialist routing.
 
-Routes queries to specialist models based on content analysis,
-with optional multi-model consensus for critical tasks.
+Routes queries to the best available local specialist model
+based on content analysis + learned performance data.
+Supports any hardware tier from 2GB VRAM laptops to 48GB+ workstations.
 
-Built for Balamurugan's RTX 4060 8GB + 32GB RAM setup.
+v3.0: Self-learning integration — specialist rankings adapt based on
+observed latency, quality, and user feedback.
 """
 
 import asyncio
@@ -130,60 +132,96 @@ CLASSIFICATION_RULES = {
 }
 
 # ═══════════════════════════════════════════════
-#  MODEL SPECIALISTS — Bala's Local Arsenal
+#  MODEL SPECIALISTS — 100% Local-First Arsenal
+#  Tiered: Large → Medium → Small → Tiny fallbacks
+#  Auto-selects best model available on your hardware
 # ═══════════════════════════════════════════════
 
 SPECIALIST_MODELS = {
     QueryType.CODE: [
-        "gemini-2.5-flash",
-        "ollama/qwen2.5-coder:32b",
-        "ollama/qwen3-coder:30b",
-        "ollama/qwen2.5-coder:latest",
+        "ollama/qwen2.5-coder:32b",       # Best local coding (24GB VRAM)
+        "ollama/devstral",                 # SWE agent (16GB VRAM)
+        "ollama/qwen2.5-coder:14b",       # Strong code (8GB VRAM)
+        "ollama/qwen3:8b",                # Good code + reasoning (4GB VRAM)
+        "ollama/qwen2.5-coder:7b",        # Efficient code (4GB VRAM)
+        "ollama/qwen3:4b",                # Tiny but capable
+        "ollama/phi4-mini",               # STEM strong at 3.8B
     ],
     QueryType.REASONING: [
-        "gemini-2.5-flash",
-        "ollama/deepseek-r1:32b",
-        "ollama/qwen2.5-coder:32b",
-        "ollama/phi4:latest",
+        "ollama/deepseek-r1:32b",          # Best local reasoning (24GB)
+        "ollama/qwen3:32b",                # Frontier-class (20GB)
+        "ollama/deepseek-r1:14b",          # Strong reasoning (8GB)
+        "ollama/phi4-reasoning",           # Dedicated reasoner (8GB)
+        "ollama/phi4",                     # Excellent at 14B
+        "ollama/qwen3:8b",                # Hybrid thinking
+        "ollama/deepseek-r1:8b",           # Efficient reasoning
+        "ollama/qwen3:4b",                # Tiny but thinks
     ],
     QueryType.MATH: [
-        "gemini-2.5-flash",
-        "ollama/deepseek-r1:32b",
-        "ollama/qwen2.5-coder:32b",
+        "ollama/deepseek-r1:32b",          # Best math reasoning
+        "ollama/qwen3:32b",                # Strong math
+        "ollama/deepseek-r1:14b",          # Good math
+        "ollama/phi4-reasoning",           # STEM specialist
+        "ollama/phi4",                     # Strong STEM
+        "ollama/deepseek-r1:8b",           # Efficient
+        "ollama/phi4-mini",               # STEM at 3.8B
+        "ollama/qwen3:4b",                # Tiny math
     ],
     QueryType.GENERAL: [
-        "gemini-2.5-flash",               # FREE Google - 1.2s response!
-        "ollama/phi4:latest",
-        "ollama/glm-4.7-flash:latest",
-        "ollama/qwen2.5-coder:32b",
+        "ollama/qwen3:32b",                # Best open model
+        "ollama/gemma3:27b",               # Near-GPT-4
+        "ollama/glm-4.7-flash",            # 30B MoE
+        "ollama/qwen3:14b",               # Near-frontier
+        "ollama/phi4",                     # Excellent 14B
+        "ollama/qwen3:8b",                # Best 8B
+        "ollama/gemma3",                   # Google 12B
+        "ollama/qwen3:4b",                # Beats 7B models
+        "ollama/phi4-mini",               # 3.8B solid
+        "ollama/llama3.2:3b",              # Ultra-fast
     ],
     QueryType.CREATIVE: [
-        "gemini-2.5-flash",
-        "ollama/phi4:latest",
-        "ollama/glm-4.7-flash:latest",
-        "ollama/mistral-small3.1:latest",
+        "ollama/qwen3:32b",                # Best creative quality
+        "ollama/gemma3:27b",               # Strong creative
+        "ollama/mistral-small3.1",         # Good writing
+        "ollama/qwen3:14b",               # Good creative
+        "ollama/phi4",                     # Solid
+        "ollama/qwen3:8b",                # Efficient
+        "ollama/gemma3",                   # Google
+        "ollama/qwen3:4b",                # Tiny creative
     ],
     QueryType.VISION: [
-        "ollama/mistral-small3.1:latest",
-        "ollama/qwen3-vl:latest",
-        "ollama/llava:latest",
+        "ollama/mistral-small3.1",         # 24B vision+text
+        "ollama/qwen3-vl",                # Best open VLM
+        "ollama/llama3.2-vision",          # 11B efficient VLM
+        "ollama/gemma3:27b",               # 27B with vision
+        "ollama/gemma3",                   # 12B with vision
+        "ollama/gemma3:4b",               # 4B with vision
+        "ollama/llava",                    # Lightweight
+        "ollama/llama4:scout",             # 512K context
     ],
     QueryType.TRANSLATION: [
-        "gemini-2.5-flash",
-        "ollama/translategemma:latest",
-        "ollama/glm-4.7-flash:latest",
+        "ollama/translategemma",           # 55 languages specialist
+        "ollama/qwen3:32b",                # Strong multilingual
+        "ollama/glm-4.7-flash",            # Good multilingual
+        "ollama/qwen3:8b",                # Decent multilingual
+        "ollama/gemma3",                   # 140+ languages
+        "ollama/qwen3:4b",                # Basic multilingual
     ],
     QueryType.OCR: [
-        "ollama/glm-ocr:latest",
-        "ollama/qwen3-vl:latest",
-        "ollama/mistral-small3.1:latest",
+        "ollama/glm-ocr",                 # #1 document OCR (0.9B!)
+        "ollama/qwen3-vl",                # Vision+text extraction
+        "ollama/mistral-small3.1",         # Strong vision
+        "ollama/llama3.2-vision",          # Efficient VLM
+        "ollama/gemma3:4b",               # Light vision
     ],
 }
 
 JUDGE_MODELS = [
-    "ollama/phi4:latest",
-    "ollama/phi3:mini",
-    "ollama/qwen2.5-coder:latest",
+    "ollama/qwen3:8b",                    # Best 8B judge
+    "ollama/phi4",                         # Strong reasoning judge
+    "ollama/qwen3:4b",                    # Tiny but good judge
+    "ollama/phi4-mini",                   # Fallback tiny judge
+    "ollama/phi3:mini",                    # Legacy fallback
 ]
 
 
@@ -269,6 +307,13 @@ class EnsembleEngine:
             available = [m.id for m in self.brain.models.values()
                         if m.provider.value == "ollama" and m.enabled]
 
+        # v3.0: Rerank using learned performance data if available
+        if hasattr(self.brain, 'learning') and self.brain.learning:
+            learned = self.brain.learning.get_ranked_models(best_type, available)
+            if learned and len(learned) >= 2:
+                # Use learned ranking (best performers first)
+                available = [model_id for model_id, _ in learned]
+
         specialist = available[0] if available else "ollama/phi4:latest"
         fallbacks = available[1:4] if len(available) > 1 else []
 
@@ -286,6 +331,7 @@ class EnsembleEngine:
         qtype = classification.query_type
         self.stats["by_type"][qtype] = self.stats["by_type"].get(qtype, 0) + 1
 
+        self._current_query_type = qtype  # Track for learning engine
         logger.info(f"[Ensemble] '{qtype}' (conf={classification.confidence:.0%}) → {classification.specialist}")
 
         if mode == "fastest":
@@ -293,7 +339,9 @@ class EnsembleEngine:
                 JUDGE_MODELS[0], messages, system, temperature, max_tokens,
                 qtype, classification.confidence, start)
         if mode == "strongest":
-            for m in ["ollama/llama3.3:latest", "ollama/qwen2.5-coder:32b", "ollama/deepseek-r1:32b"]:
+            for m in ["ollama/qwen3:32b", "ollama/gemma3:27b", "ollama/deepseek-r1:32b",
+                       "ollama/qwen2.5-coder:32b", "ollama/glm-4.7-flash",
+                       "ollama/qwen3:14b", "ollama/phi4", "ollama/qwen3:8b"]:
                 if m in self.brain.models:
                     return await self._single_model(
                         m, messages, system, temperature, max_tokens,
@@ -329,13 +377,30 @@ class EnsembleEngine:
                 resp = await self._call_model(model_id, messages, system, temperature, max_tokens)
                 if resp and resp.strip():
                     self.stats["by_model"][model_id] = self.stats["by_model"].get(model_id, 0) + 1
+                    latency = (time.time()-start)*1000
+
+                    # v3.0: Record success in learning engine
+                    if hasattr(self.brain, 'learning') and self.brain.learning:
+                        quality = min(1.0, 0.5 + (0.3 if latency < 2000 else 0) +
+                                      (0.2 if len(resp) > 100 else 0))
+                        self.brain.learning.record_request(
+                            model_id=model_id, query_type=classification.query_type,
+                            latency_ms=latency, success=True, quality_score=quality,
+                        )
+
                     return EnsembleResult(content=resp, model_used=model_id,
                                         query_type=classification.query_type,
                                         confidence=classification.confidence,
-                                        latency_ms=(time.time()-start)*1000,
+                                        latency_ms=latency,
                                         models_consulted=models_tried)
             except Exception as e:
                 logger.warning(f"[Ensemble] {model_id} failed: {e}")
+                # v3.0: Record failure in learning engine
+                if hasattr(self.brain, 'learning') and self.brain.learning:
+                    self.brain.learning.record_request(
+                        model_id=model_id, query_type=classification.query_type,
+                        latency_ms=0, success=False,
+                    )
                 continue
         return EnsembleResult(
             content="All local models unavailable. Check Ollama is running.",
@@ -468,6 +533,8 @@ Return verified response directly."""}]
         logger.info(f"[CALL] {model_id} with {len(clean_msgs)} msgs (cleaned from {len(messages)})")
         req = CompletionRequest(messages=clean_msgs, model=model_id, system=system,
                                temperature=temperature, max_tokens=max_tokens)
+        # Pass query type to brain for learning engine tracking
+        req._query_type = getattr(self, '_current_query_type', 'general')
         resp = await self.brain.complete(req)
         return resp.content
 

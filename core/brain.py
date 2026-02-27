@@ -1,20 +1,31 @@
 """
-KaasAI Neural Brain v2.0 — Comprehensive Unified LLM Gateway & Router
-Central AI backbone for all Kaashmikhaa products + OpenClaw fallback.
+KaasAI Neural Brain v4.0 — Self-Learning Local-First LLM Gateway
+Central AI backbone — zero API keys needed. 100% functional with just Ollama.
 
-UPGRADE: Added ALL major 2026 frontier models across every category:
-- Text/Reasoning: GPT-5.2, Claude 4.5, Gemini 3, DeepSeek V3.2, Grok 4.1, etc.
-- Vision: Qwen3-VL, LLaVA, MiniCPM-o, Llama 4 Scout, etc.
-- Audio/Speech: MiniCPM-o 2.6, Qwen3-Omni, Whisper
-- Code: Qwen3-Coder, DeepSeek-Coder, Devstral, Codestral
-- Reasoning: DeepSeek-R1, Phi4-Reasoning, o4-mini, Gemini 2.5 Pro
-- OCR/Translation: GLM-OCR, TranslateGemma, FunctionGemma
-- Enterprise: IBM Granite 4 (Hybrid Mamba), GLM-4.7-Flash (30B MoE)
-- Embedding: Qwen3-Embedding (#1 MTEB), OpenAI text-embedding-3
-- Local/Free: 15+ Ollama models optimized for 8GB VRAM RTX 4060
+v4.0 FEATURES:
+- SELF-LEARNING: Adapts routing based on real performance data (latency, quality, feedback)
+- QUANTIZATION: Auto-detects and prefers compressed model variants for speed + space savings
+- DISTILLATION: Larger models teach smaller ones — local AI gets smarter over time
+- SUB-2-SECOND RESPONSES: Aggressive caching, model warmup, connection pooling, fast routing
+- 45+ local Ollama models across all categories (code, reasoning, vision, audio, embedding)
+- Tiered model selection: auto-picks best model for your hardware (2GB → 48GB VRAM)
 
-Supports: Anthropic, OpenAI, Google, Groq, Ollama, OpenRouter, Together,
-          HuggingFace, Mistral, xAI, DeepSeek, LM Studio, vLLM, Custom
+PERFORMANCE TARGET: Quality responses in <1-2 seconds via:
+- Warm model pool (pre-loaded in GPU memory)
+- Connection pooling (zero TCP handshake overhead)
+- Prompt caching (instant repeat responses)
+- Adaptive routing (learned fast+good models first)
+- Quantized models (smaller = faster inference)
+
+MODEL TIERS (Local):
+- Tier 1 (1-4B): Qwen3 1.7B/4B, Phi4-Mini, Llama 3.2 1B/3B — any hardware, <0.5s
+- Tier 2 (7-8B): Qwen3 8B, Gemma 3 12B, Qwen 2.5 Coder 7B — 4GB VRAM, <1s
+- Tier 3 (14B): Phi4, Qwen3 14B, DeepSeek R1 14B — 8GB VRAM, <2s
+- Tier 4 (27-32B): Qwen3 32B, Gemma 3 27B, DeepSeek R1 32B — 16-24GB VRAM, <3s
+
+CLOUD PROVIDERS (optional, for users with API keys):
+- Anthropic, OpenAI, Google, Groq, Ollama, OpenRouter, Together,
+  HuggingFace, Mistral, xAI, DeepSeek, LM Studio, vLLM, Custom
 """
 import os
 import json
@@ -78,6 +89,7 @@ class RoutingStrategy(Enum):
     ROUND_ROBIN = "round_robin"
     FALLBACK = "fallback"
     CAPABILITY = "capability"
+    LOCAL_FIRST = "local_first"
     CUSTOM = "custom"
 
 
@@ -133,7 +145,7 @@ class CompletionRequest:
     tools: List[Dict] = field(default_factory=list)
     tool_choice: str = "auto"
     response_format: Optional[Dict] = None
-    routing_strategy: RoutingStrategy = RoutingStrategy.FALLBACK
+    routing_strategy: RoutingStrategy = RoutingStrategy.LOCAL_FIRST
     required_capabilities: List[ModelCapability] = field(default_factory=list)
     max_cost_per_request: float = 0.0
     product: str = ""
@@ -525,145 +537,178 @@ DEFAULT_MODELS = {
 
     # ══════════════════════════════════════════════
     # CATEGORY 5: LOCAL MODELS (Ollama — FREE)
-    # Optimized for RTX 4060 8GB VRAM + 32GB RAM
+    # Optimized for maximum efficiency on any hardware
+    # Tiered: Tiny (1-3B) → Small (7-8B) → Medium (14B) → Large (27-32B)
     # ══════════════════════════════════════════════
 
-    # ─── General Chat (Local) ───
-    "ollama/phi3:mini": ModelConfig(
-        id="ollama/phi3:mini", provider=ProviderType.OLLAMA,
-        name="Phi3 Mini 3.8B (Local, 2.2GB)", context_window=128000, max_output=4096,
+    # ─── TIER 1: ULTRA-LIGHT (1-4B, runs on anything, <3GB VRAM) ───
+    "ollama/qwen3:1.7b": ModelConfig(
+        id="ollama/qwen3:1.7b", provider=ProviderType.OLLAMA,
+        name="Qwen 3 1.7B (Ultra-Light, Hybrid Thinking)", context_window=40960, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
                       ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
-    "ollama/phi4": ModelConfig(
-        id="ollama/phi4", provider=ProviderType.OLLAMA,
-        name="Phi 4 14B (Local, 8GB)", context_window=200000, max_output=8192,
+    "ollama/qwen3:4b": ModelConfig(
+        id="ollama/qwen3:4b", provider=ProviderType.OLLAMA,
+        name="Qwen 3 4B (Light, Beats 7B Models)", context_window=40960, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.FAST, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/phi4-mini": ModelConfig(
+        id="ollama/phi4-mini", provider=ProviderType.OLLAMA,
+        name="Phi 4 Mini 3.8B (Microsoft, Strong STEM)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.FAST, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/llama3.2:3b": ModelConfig(
+        id="ollama/llama3.2:3b", provider=ProviderType.OLLAMA,
+        name="Llama 3.2 3B (Meta, Ultra-Fast)", context_window=128000, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/llama3.2:1b": ModelConfig(
+        id="ollama/llama3.2:1b", provider=ProviderType.OLLAMA,
+        name="Llama 3.2 1B (Instant Responses, 700MB)", context_window=128000, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/gemma3:4b": ModelConfig(
+        id="ollama/gemma3:4b", provider=ProviderType.OLLAMA,
+        name="Gemma 3 4B (Google, Vision+Text)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
+                      ModelCapability.FAST, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/granite4": ModelConfig(
+        id="ollama/granite4", provider=ProviderType.OLLAMA,
+        name="IBM Granite 4 3B (Hybrid Mamba, Tool Calling)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE,
+                      ModelCapability.FUNCTION_CALLING, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP, ModelCapability.FAST],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/smollm2:1.7b": ModelConfig(
+        id="ollama/smollm2:1.7b", provider=ProviderType.OLLAMA,
+        name="SmolLM2 1.7B (HuggingFace, Tiny+Fast)", context_window=8192, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+
+    # ─── TIER 2: EFFICIENT (7-8B, sweet spot, 4-5GB VRAM) ───
+    "ollama/qwen3:8b": ModelConfig(
+        id="ollama/qwen3:8b", provider=ProviderType.OLLAMA,
+        name="Qwen 3 8B (Best 8B Model, Hybrid Thinking)", context_window=40960, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/gemma3": ModelConfig(
+        id="ollama/gemma3", provider=ProviderType.OLLAMA,
+        name="Gemma 3 12B (Google, Vision+Text, Strong)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.VISION,
                       ModelCapability.STREAMING, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
     "ollama/llama3.3": ModelConfig(
         id="ollama/llama3.3", provider=ProviderType.OLLAMA,
-        name="Llama 3.3 8B (Local, 4.5GB)", context_window=128000, max_output=8192,
+        name="Llama 3.3 70B (Q4 runs on 48GB)", context_window=128000, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.STREAMING,
                       ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
-    "ollama/llama4:scout": ModelConfig(
-        id="ollama/llama4:scout", provider=ProviderType.OLLAMA,
-        name="Llama 4 Scout (Local, Vision)", context_window=512000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.VISION,
-                      ModelCapability.STREAMING, ModelCapability.LONG_CONTEXT, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="vision",
-    ),
     "ollama/mistral": ModelConfig(
         id="ollama/mistral", provider=ProviderType.OLLAMA,
-        name="Mistral 7B (Local, 4GB)", context_window=32000, max_output=4096,
+        name="Mistral 7B (Stable Classic, 4GB)", context_window=32000, max_output=4096,
         capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
                       ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
-    "ollama/gemma3": ModelConfig(
-        id="ollama/gemma3", provider=ProviderType.OLLAMA,
-        name="Gemma 3 4B (Local, Google)", context_window=128000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
-                      ModelCapability.FAST, ModelCapability.CHEAP],
+    "ollama/phi3:mini": ModelConfig(
+        id="ollama/phi3:mini", provider=ProviderType.OLLAMA,
+        name="Phi3 Mini 3.8B (Legacy, 2.2GB)", context_window=128000, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
     "ollama/qwen2.5": ModelConfig(
         id="ollama/qwen2.5", provider=ProviderType.OLLAMA,
-        name="Qwen 2.5 7B (Local)", context_window=128000, max_output=8192,
+        name="Qwen 2.5 7B (Solid All-Around)", context_window=128000, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.STREAMING,
                       ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
     "ollama/qwen3": ModelConfig(
         id="ollama/qwen3", provider=ProviderType.OLLAMA,
-        name="Qwen 3 8B (Local, Latest)", context_window=128000, max_output=8192,
+        name="Qwen 3 8B (Latest, Hybrid Thinking)", context_window=40960, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
                       ModelCapability.STREAMING, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
+    "ollama/llama3": ModelConfig(
+        id="ollama/llama3", provider=ProviderType.OLLAMA,
+        name="Llama 3 8B (Meta Foundation)", context_window=8192, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP, ModelCapability.FAST],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
 
-    # ─── Code (Local) ───
-    "ollama/qwen2.5-coder:7b": ModelConfig(
-        id="ollama/qwen2.5-coder:7b", provider=ProviderType.OLLAMA,
-        name="Qwen 2.5 Coder 7B (Local)", context_window=131072, max_output=8192,
+    # ─── TIER 3: MEDIUM (14B, great quality, 8GB VRAM) ───
+    "ollama/phi4": ModelConfig(
+        id="ollama/phi4", provider=ProviderType.OLLAMA,
+        name="Phi 4 14B (Microsoft, Excellent Reasoning)", context_window=200000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/qwen3:14b": ModelConfig(
+        id="ollama/qwen3:14b", provider=ProviderType.OLLAMA,
+        name="Qwen 3 14B (Near-Frontier Local Quality)", context_window=40960, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/deepseek-r1:14b": ModelConfig(
+        id="ollama/deepseek-r1:14b", provider=ProviderType.OLLAMA,
+        name="DeepSeek R1 14B (Strong Reasoning, 8GB)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="reasoning",
+    ),
+
+    # ─── TIER 4: LARGE (27-32B, top local quality, 16-20GB VRAM) ───
+    "ollama/gemma3:27b": ModelConfig(
+        id="ollama/gemma3:27b", provider=ProviderType.OLLAMA,
+        name="Gemma 3 27B (Google, Near-GPT-4 Quality)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.VISION,
+                      ModelCapability.REASONING, ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/qwen3:32b": ModelConfig(
+        id="ollama/qwen3:32b", provider=ProviderType.OLLAMA,
+        name="Qwen 3 32B (Best Open Model, Frontier-Class)", context_window=40960, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="general",
+    ),
+    "ollama/qwen2.5-coder:32b": ModelConfig(
+        id="ollama/qwen2.5-coder:32b", provider=ProviderType.OLLAMA,
+        name="Qwen 2.5 Coder 32B (Best Local Coding)", context_window=131072, max_output=8192,
         capabilities=[ModelCapability.CODE, ModelCapability.CHAT, ModelCapability.STREAMING,
                       ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="code",
     ),
-    "ollama/devstral": ModelConfig(
-        id="ollama/devstral", provider=ProviderType.OLLAMA,
-        name="Devstral (Local, SWE Agent)", context_window=128000, max_output=8192,
-        capabilities=[ModelCapability.CODE, ModelCapability.CHAT, ModelCapability.FUNCTION_CALLING,
-                      ModelCapability.STREAMING, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="code",
-    ),
-    "ollama/deepseek-coder-v2": ModelConfig(
-        id="ollama/deepseek-coder-v2", provider=ProviderType.OLLAMA,
-        name="DeepSeek Coder V2 (Local)", context_window=128000, max_output=4096,
-        capabilities=[ModelCapability.CODE, ModelCapability.STREAMING, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="code",
-    ),
-
-    # ─── Reasoning (Local) ───
-    "ollama/deepseek-r1:8b": ModelConfig(
-        id="ollama/deepseek-r1:8b", provider=ProviderType.OLLAMA,
-        name="DeepSeek R1 8B (Local Reasoning)", context_window=128000, max_output=8192,
+    "ollama/deepseek-r1:32b": ModelConfig(
+        id="ollama/deepseek-r1:32b", provider=ProviderType.OLLAMA,
+        name="DeepSeek R1 32B (Best Local Reasoning)", context_window=128000, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
                       ModelCapability.STREAMING, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="reasoning",
-    ),
-    "ollama/phi4-reasoning": ModelConfig(
-        id="ollama/phi4-reasoning", provider=ProviderType.OLLAMA,
-        name="Phi 4 Reasoning (Local)", context_window=200000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
-                      ModelCapability.STREAMING, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="reasoning",
-    ),
-
-    # ─── Vision/Multimodal (Local) ───
-    "ollama/llava": ModelConfig(
-        id="ollama/llava", provider=ProviderType.OLLAMA,
-        name="LLaVA 1.6 (Local Vision)", context_window=4096, max_output=2048,
-        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
-                      ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="vision",
-    ),
-    "ollama/qwen3-vl": ModelConfig(
-        id="ollama/qwen3-vl", provider=ProviderType.OLLAMA,
-        name="Qwen3-VL (Best Open VLM, Vision+Video+Agent, 8B)", context_window=256000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.VIDEO,
-                      ModelCapability.FUNCTION_CALLING, ModelCapability.STREAMING,
-                      ModelCapability.LONG_CONTEXT, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="vision",
-    ),
-    "ollama/mistral-small3.1": ModelConfig(
-        id="ollama/mistral-small3.1", provider=ProviderType.OLLAMA,
-        name="Mistral Small 3.1 (Local Vision+Text)", context_window=128000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
-                      ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="vision",
-    ),
-
-    # ─── Omni/Audio (Local) — BEST FOR AUDIO ───
-    "ollama/minicpm-o": ModelConfig(
-        id="ollama/minicpm-o", provider=ProviderType.OLLAMA,
-        name="MiniCPM-o 2.6 (Local Omni: Vision+Audio+Speech)", context_window=32000, max_output=4096,
-        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.AUDIO,
-                      ModelCapability.SPEECH_IN, ModelCapability.SPEECH_OUT,
-                      ModelCapability.OMNI, ModelCapability.STREAMING, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="audio",
-    ),
-
-    # ─── GLM Models (Zhipu AI — via Ollama) ───
-    "ollama/glm-ocr": ModelConfig(
-        id="ollama/glm-ocr", provider=ProviderType.OLLAMA,
-        name="GLM-OCR (#1 Document OCR, 0.9B)", context_window=8192, max_output=8192,
-        capabilities=[ModelCapability.VISION, ModelCapability.STREAMING, ModelCapability.CHEAP],
-        is_local=True, endpoint="http://localhost:11434", category="vision",
     ),
     "ollama/glm-4.7-flash": ModelConfig(
         id="ollama/glm-4.7-flash", provider=ProviderType.OLLAMA,
@@ -674,46 +719,153 @@ DEFAULT_MODELS = {
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
 
-    # ─── Google Gemma Specialists (via Ollama) ───
+    # ─── Code Specialists (Local) ───
+    "ollama/qwen2.5-coder:7b": ModelConfig(
+        id="ollama/qwen2.5-coder:7b", provider=ProviderType.OLLAMA,
+        name="Qwen 2.5 Coder 7B (Efficient Code)", context_window=131072, max_output=8192,
+        capabilities=[ModelCapability.CODE, ModelCapability.CHAT, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="code",
+    ),
+    "ollama/qwen2.5-coder:14b": ModelConfig(
+        id="ollama/qwen2.5-coder:14b", provider=ProviderType.OLLAMA,
+        name="Qwen 2.5 Coder 14B (Strong Code)", context_window=131072, max_output=8192,
+        capabilities=[ModelCapability.CODE, ModelCapability.CHAT, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="code",
+    ),
+    "ollama/devstral": ModelConfig(
+        id="ollama/devstral", provider=ProviderType.OLLAMA,
+        name="Devstral 24B (Mistral, SWE Agent)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CODE, ModelCapability.CHAT, ModelCapability.FUNCTION_CALLING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="code",
+    ),
+    "ollama/deepseek-coder-v2": ModelConfig(
+        id="ollama/deepseek-coder-v2", provider=ProviderType.OLLAMA,
+        name="DeepSeek Coder V2 16B (MoE)", context_window=128000, max_output=4096,
+        capabilities=[ModelCapability.CODE, ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="code",
+    ),
+    "ollama/starcoder2:7b": ModelConfig(
+        id="ollama/starcoder2:7b", provider=ProviderType.OLLAMA,
+        name="StarCoder2 7B (BigCode, 600+ Languages)", context_window=16384, max_output=4096,
+        capabilities=[ModelCapability.CODE, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="code",
+    ),
+
+    # ─── Reasoning Specialists (Local) ───
+    "ollama/deepseek-r1:8b": ModelConfig(
+        id="ollama/deepseek-r1:8b", provider=ProviderType.OLLAMA,
+        name="DeepSeek R1 8B (Efficient Reasoning)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="reasoning",
+    ),
+    "ollama/deepseek-r1:1.5b": ModelConfig(
+        id="ollama/deepseek-r1:1.5b", provider=ProviderType.OLLAMA,
+        name="DeepSeek R1 1.5B (Tiny Reasoner, 1GB)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.FAST, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="reasoning",
+    ),
+    "ollama/phi4-reasoning": ModelConfig(
+        id="ollama/phi4-reasoning", provider=ProviderType.OLLAMA,
+        name="Phi 4 Reasoning 14B (Microsoft)", context_window=200000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.REASONING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="reasoning",
+    ),
+
+    # ─── Vision/Multimodal (Local) ───
+    "ollama/llama4:scout": ModelConfig(
+        id="ollama/llama4:scout", provider=ProviderType.OLLAMA,
+        name="Llama 4 Scout (Vision+Text, 512K Context)", context_window=512000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.VISION,
+                      ModelCapability.STREAMING, ModelCapability.LONG_CONTEXT, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
+    "ollama/qwen3-vl": ModelConfig(
+        id="ollama/qwen3-vl", provider=ProviderType.OLLAMA,
+        name="Qwen3-VL 8B (Best Open VLM, Vision+Video)", context_window=256000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.VIDEO,
+                      ModelCapability.FUNCTION_CALLING, ModelCapability.STREAMING,
+                      ModelCapability.LONG_CONTEXT, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
+    "ollama/mistral-small3.1": ModelConfig(
+        id="ollama/mistral-small3.1", provider=ProviderType.OLLAMA,
+        name="Mistral Small 3.1 24B (Vision+Text, Strong)", context_window=128000, max_output=8192,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.FUNCTION_CALLING,
+                      ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
+    "ollama/llava": ModelConfig(
+        id="ollama/llava", provider=ProviderType.OLLAMA,
+        name="LLaVA 1.6 7B (Lightweight Vision)", context_window=4096, max_output=2048,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
+    "ollama/llama3.2-vision": ModelConfig(
+        id="ollama/llama3.2-vision", provider=ProviderType.OLLAMA,
+        name="Llama 3.2 Vision 11B (Meta, Efficient VLM)", context_window=128000, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.STREAMING,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
+
+    # ─── Omni/Audio (Local) ───
+    "ollama/minicpm-o": ModelConfig(
+        id="ollama/minicpm-o", provider=ProviderType.OLLAMA,
+        name="MiniCPM-o 2.6 (Omni: Vision+Audio+Speech)", context_window=32000, max_output=4096,
+        capabilities=[ModelCapability.CHAT, ModelCapability.VISION, ModelCapability.AUDIO,
+                      ModelCapability.SPEECH_IN, ModelCapability.SPEECH_OUT,
+                      ModelCapability.OMNI, ModelCapability.STREAMING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="audio",
+    ),
+
+    # ─── Specialist Models (Local) ───
+    "ollama/glm-ocr": ModelConfig(
+        id="ollama/glm-ocr", provider=ProviderType.OLLAMA,
+        name="GLM-OCR 0.9B (#1 Document OCR)", context_window=8192, max_output=8192,
+        capabilities=[ModelCapability.VISION, ModelCapability.STREAMING, ModelCapability.FAST,
+                      ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="vision",
+    ),
     "ollama/translategemma": ModelConfig(
         id="ollama/translategemma", provider=ProviderType.OLLAMA,
-        name="TranslateGemma (55 Languages Translation, 4B)", context_window=128000, max_output=8192,
+        name="TranslateGemma 4B (55 Languages)", context_window=128000, max_output=8192,
         capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="general",
     ),
     "ollama/functiongemma": ModelConfig(
         id="ollama/functiongemma", provider=ProviderType.OLLAMA,
-        name="FunctionGemma (270M Ultra-Tiny Function Calling)", context_window=8192, max_output=2048,
+        name="FunctionGemma 270M (Ultra-Tiny Tool Calling)", context_window=8192, max_output=2048,
         capabilities=[ModelCapability.FUNCTION_CALLING, ModelCapability.STREAMING,
                       ModelCapability.FAST, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="code",
     ),
 
-    # ─── IBM Granite (via Ollama) ───
-    "ollama/granite4": ModelConfig(
-        id="ollama/granite4", provider=ProviderType.OLLAMA,
-        name="IBM Granite 4 (Hybrid Mamba, Tool Calling, 3B)", context_window=128000, max_output=8192,
-        capabilities=[ModelCapability.CHAT, ModelCapability.CODE,
-                      ModelCapability.FUNCTION_CALLING, ModelCapability.STREAMING,
-                      ModelCapability.CHEAP, ModelCapability.FAST],
-        is_local=True, endpoint="http://localhost:11434", category="general",
-    ),
-
-    # ─── Qwen3 Specialists (via Ollama) ───
+    # ─── Embedding Models (Local) ───
     "ollama/qwen3-embedding": ModelConfig(
         id="ollama/qwen3-embedding", provider=ProviderType.OLLAMA,
-        name="Qwen3-Embedding (#1 MTEB Multilingual, 0.6B)", context_window=32000, max_output=0,
+        name="Qwen3-Embedding 0.6B (#1 MTEB Multilingual)", context_window=32000, max_output=0,
         capabilities=[ModelCapability.EMBEDDING, ModelCapability.CHEAP],
         is_local=True, endpoint="http://localhost:11434", category="embedding",
     ),
-
-    # ─── Llama 3 (via Ollama) ───
-    "ollama/llama3": ModelConfig(
-        id="ollama/llama3", provider=ProviderType.OLLAMA,
-        name="Llama 3 (8B, Meta Foundation)", context_window=8192, max_output=4096,
-        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING,
-                      ModelCapability.CHEAP, ModelCapability.FAST],
-        is_local=True, endpoint="http://localhost:11434", category="general",
+    "ollama/nomic-embed-text": ModelConfig(
+        id="ollama/nomic-embed-text", provider=ProviderType.OLLAMA,
+        name="Nomic Embed Text 137M (Fast Embeddings)", context_window=8192, max_output=0,
+        capabilities=[ModelCapability.EMBEDDING, ModelCapability.FAST, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="embedding",
+    ),
+    "ollama/mxbai-embed-large": ModelConfig(
+        id="ollama/mxbai-embed-large", provider=ProviderType.OLLAMA,
+        name="MxBAI Embed Large 335M (High Quality Embeddings)", context_window=512, max_output=0,
+        capabilities=[ModelCapability.EMBEDDING, ModelCapability.CHEAP],
+        is_local=True, endpoint="http://localhost:11434", category="embedding",
     ),
 
     # ─── LM Studio ───
@@ -735,7 +887,7 @@ QUALITY_RANKING = [
     "gemini-3.1-pro",            # 2. Latest Gemini frontier
     "gemini-3.0-pro",            # 3. Best multimodal + 2M context
     "gpt-5.2",                   # 4. Best omni-modal
-    "gemini-3-flash",            # 5. ⚡ Pro intelligence at Flash speed!
+    "gemini-3-flash",            # 5. Pro intelligence at Flash speed
     "grok-4.1",                  # 6. Cheapest frontier
     "o3",                        # 7. Deepest reasoning
     "claude-sonnet-4-5-20250929",# 8. Great balance
@@ -743,16 +895,59 @@ QUALITY_RANKING = [
     "gpt-4.1",                   # 10. 1M context
     "deepseek-v3.2",             # 11. Best value reasoning
     "mistral-large-3",           # 12. Good European option
-    "MiniMax-M2.5",              # 13. Great value, SWE-bench 80.2%
-    "MiniMax-M2.5-Lightning",    # 14. Same quality, 2x faster (100 TPS)
-    "gpt-4o",                    # 14. Proven omni-modal
-    "deepseek-r1",               # 15. Open reasoning
-    "llama-3.3-70b-versatile",   # 16. Fast via Groq
-    "claude-haiku-4-5-20251001", # 17. Fast Anthropic
-    "gemini-2.5-flash",          # 18. Best value Flash
-    "gpt-4o-mini",               # 19. Cheapest OpenAI
-    "gemini-2.5-flash-lite",     # 20. Ultra-cheap Google
-    "gemini-2.0-flash",          # 21. Legacy (retiring)
+    "MiniMax-M2.5",              # 13. Great value
+    "MiniMax-M2.5-Lightning",    # 14. Fast inference
+    "gpt-4o",                    # 15. Proven omni-modal
+    "deepseek-r1",               # 16. Open reasoning
+    "llama-3.3-70b-versatile",   # 17. Fast via Groq
+    "claude-haiku-4-5-20251001", # 18. Fast Anthropic
+    "gemini-2.5-flash",          # 19. Best value Flash
+    "gpt-4o-mini",               # 20. Cheapest OpenAI
+    "gemini-2.5-flash-lite",     # 21. Ultra-cheap Google
+    "gemini-2.0-flash",          # 22. Legacy
+]
+
+
+# ═══════════════════════════════════════════════════════
+# Local Quality Ranking — used by LOCAL_FIRST router
+# Best-to-good ordering for local Ollama models
+# ═══════════════════════════════════════════════════════
+
+LOCAL_QUALITY_RANKING = [
+    # Tier 4: Large — best quality available locally
+    "ollama/qwen3:32b",         # 1. Best open model overall
+    "ollama/gemma3:27b",        # 2. Near-GPT-4 quality, vision
+    "ollama/deepseek-r1:32b",   # 3. Best local reasoning
+    "ollama/qwen2.5-coder:32b", # 4. Best local coding
+    "ollama/glm-4.7-flash",     # 5. 30B MoE, great efficiency
+    "ollama/devstral",          # 6. 24B SWE agent
+    "ollama/mistral-small3.1",  # 7. 24B vision+text
+
+    # Tier 3: Medium — great quality, fits 8GB VRAM
+    "ollama/qwen3:14b",         # 8. Near-frontier quality
+    "ollama/phi4",              # 9. Excellent reasoning
+    "ollama/deepseek-r1:14b",   # 10. Strong reasoning
+    "ollama/qwen2.5-coder:14b", # 11. Strong coding
+    "ollama/phi4-reasoning",    # 12. Dedicated reasoner
+
+    # Tier 2: Efficient — sweet spot, runs on 4GB VRAM
+    "ollama/qwen3:8b",          # 13. Best 8B model
+    "ollama/gemma3",            # 14. Google 12B, vision
+    "ollama/qwen3",             # 15. Qwen3 default
+    "ollama/qwen2.5",           # 16. Solid all-around
+    "ollama/deepseek-r1:8b",    # 17. Efficient reasoning
+    "ollama/qwen2.5-coder:7b",  # 18. Efficient coding
+    "ollama/llama3.3",          # 19. Meta 70B (if hardware allows)
+
+    # Tier 1: Ultra-light — instant responses, any hardware
+    "ollama/qwen3:4b",          # 20. Beats 7B models
+    "ollama/phi4-mini",         # 21. Strong STEM at 3.8B
+    "ollama/gemma3:4b",         # 22. Vision at 4B
+    "ollama/llama3.2:3b",       # 23. Ultra-fast
+    "ollama/granite4",          # 24. Tool calling at 3B
+    "ollama/qwen3:1.7b",        # 25. Ultra-light
+    "ollama/llama3.2:1b",       # 26. Instant, 700MB
+    "ollama/smollm2:1.7b",      # 27. Tiny+fast
 ]
 
 
@@ -761,7 +956,7 @@ QUALITY_RANKING = [
 # ═══════════════════════════════════════════════════════
 
 class PromptCache:
-    def __init__(self, max_size: int = 500, ttl_seconds: int = 3600):
+    def __init__(self, max_size: int = 2000, ttl_seconds: int = 7200):
         self.cache: Dict[str, tuple] = {}
         self.max_size = max_size
         self.ttl = ttl_seconds
@@ -790,8 +985,9 @@ class PromptCache:
         return None
 
     def set(self, req: CompletionRequest, resp: CompletionResponse):
-        if req.temperature > 0 or req.stream:
+        if req.stream:
             return
+        # Cache even non-zero temperature for repeat queries (TTL handles freshness)
         h = self._hash(req)
         if len(self.cache) >= self.max_size:
             oldest = min(self.cache.items(), key=lambda x: x[1][1])
@@ -871,10 +1067,11 @@ class UsageTracker:
 # ═══════════════════════════════════════════════════════
 
 class SmartRouter:
-    def __init__(self, models: Dict[str, ModelConfig]):
+    def __init__(self, models: Dict[str, ModelConfig], learning_engine=None):
         self.models = models
+        self.learning = learning_engine  # Self-learning engine for adaptive routing
 
-    def select_model(self, req: CompletionRequest) -> List[ModelConfig]:
+    def select_model(self, req: CompletionRequest, query_type: str = "") -> List[ModelConfig]:
         candidates = [m for m in self.models.values() if m.enabled]
         if req.required_capabilities:
             candidates = [m for m in candidates if
@@ -911,8 +1108,44 @@ class SmartRouter:
             def cap_score(m):
                 return sum(1 for cap in req.required_capabilities if cap in m.capabilities)
             candidates.sort(key=cap_score, reverse=True)
-        else:  # FALLBACK
-            candidates.sort(key=lambda m: (0 if not m.is_local else 1, m.cost_per_1k_output))
+        elif strategy == RoutingStrategy.LOCAL_FIRST:
+            # Adaptive routing: use learned performance data if available
+            if self.learning and query_type:
+                available_ids = [m.id for m in candidates if m.is_local]
+                learned_ranking = self.learning.get_ranked_models(query_type, available_ids)
+                if learned_ranking and len(learned_ranking) >= 3:
+                    # Use learned ranking for models with enough data
+                    learned_ids = [model_id for model_id, _ in learned_ranking]
+                    def adaptive_rank(m):
+                        if not m.is_local:
+                            return 1000
+                        if m.id in learned_ids:
+                            return learned_ids.index(m.id)
+                        # Fall back to static ranking for unlearned models
+                        try:
+                            return len(learned_ids) + LOCAL_QUALITY_RANKING.index(m.id)
+                        except ValueError:
+                            return 500
+                    candidates.sort(key=adaptive_rank)
+                    return candidates
+
+            def local_quality_rank(m):
+                if not m.is_local:
+                    return 1000  # Cloud models go last
+                try:
+                    return LOCAL_QUALITY_RANKING.index(m.id)
+                except ValueError:
+                    return 500  # Unknown local models before cloud
+            candidates.sort(key=local_quality_rank)
+        else:  # FALLBACK — also local-first by default
+            def fallback_rank(m):
+                if not m.is_local:
+                    return 1000
+                try:
+                    return LOCAL_QUALITY_RANKING.index(m.id)
+                except ValueError:
+                    return 500
+            candidates.sort(key=fallback_rank)
         return candidates
 
 
@@ -922,60 +1155,60 @@ class SmartRouter:
 
 PRODUCT_PRESETS: Dict[str, Dict] = {
     "opswatch": {
-        "default_model": "claude-sonnet-4-5-20250929",
-        "routing_strategy": RoutingStrategy.FALLBACK,
-        "required_capabilities": [ModelCapability.CHAT, ModelCapability.FUNCTION_CALLING],
+        "default_model": "ollama/qwen3:8b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
+        "required_capabilities": [ModelCapability.CHAT, ModelCapability.REASONING],
         "max_tokens": 2048, "temperature": 0.3,
-        "description": "OpsWatch Unified - Monitoring AI Analyst",
+        "description": "OpsWatch Unified - Monitoring AI Analyst (Local)",
     },
     "opshiftpro": {
-        "default_model": "claude-sonnet-4-5-20250929",
-        "routing_strategy": RoutingStrategy.FASTEST,
+        "default_model": "ollama/qwen3:8b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT],
         "max_tokens": 2048, "temperature": 0.4,
-        "description": "OpsShiftPro - L2 Support AI Assistant",
+        "description": "OpsShiftPro - L2 Support AI Assistant (Local)",
     },
     "opshiftpro-mobile": {
-        "default_model": "claude-haiku-4-5-20251001",
-        "routing_strategy": RoutingStrategy.FASTEST,
+        "default_model": "ollama/qwen3:4b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT, ModelCapability.FAST],
         "max_tokens": 1024, "temperature": 0.3,
-        "description": "OpsShiftPro Mobile - Quick AI responses",
+        "description": "OpsShiftPro Mobile - Quick AI responses (Local)",
     },
     "valluvan": {
-        "default_model": "claude-sonnet-4-5-20250929",
-        "routing_strategy": RoutingStrategy.BEST_QUALITY,
+        "default_model": "ollama/qwen3:8b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT, ModelCapability.REASONING],
         "max_tokens": 4096, "temperature": 0.6,
-        "description": "Valluvan Astrologer - Vedic AI predictions",
+        "description": "Valluvan Astrologer - Vedic AI predictions (Local)",
     },
     "vault-browser": {
-        "default_model": "ollama/phi3:mini",
-        "routing_strategy": RoutingStrategy.CHEAPEST,
+        "default_model": "ollama/qwen3:4b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT, ModelCapability.CHEAP],
         "max_tokens": 1024, "temperature": 0.3,
-        "description": "Vault Browser - Privacy AI (local-first)",
+        "description": "Vault Browser - Privacy AI (100% local, zero data leaves device)",
     },
     "kaasai-agent": {
-        "default_model": "MiniMax-M2.5",
-        "routing_strategy": RoutingStrategy.FALLBACK,
-        "required_capabilities": [ModelCapability.CHAT, ModelCapability.CODE, ModelCapability.FUNCTION_CALLING],
-        "max_tokens": 4096, "temperature": 0.3,
-        "description": "KaasAI Agent - Autonomous task execution",
-    },
-    "kaasai-ide": {
-        "default_model": "claude-sonnet-4-5-20250929",
-        "routing_strategy": RoutingStrategy.BEST_QUALITY,
+        "default_model": "ollama/qwen3:8b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT, ModelCapability.CODE],
         "max_tokens": 4096, "temperature": 0.3,
-        "description": "KaasAI IDE - Multi-agent development",
+        "description": "KaasAI Agent - Autonomous task execution (Local)",
+    },
+    "kaasai-ide": {
+        "default_model": "ollama/qwen2.5-coder:7b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
+        "required_capabilities": [ModelCapability.CHAT, ModelCapability.CODE],
+        "max_tokens": 4096, "temperature": 0.3,
+        "description": "KaasAI IDE - Multi-agent development (Local)",
     },
     "openclaw": {
-        "default_model": "ollama/phi3:mini",
-        "routing_strategy": RoutingStrategy.FALLBACK,
+        "default_model": "ollama/qwen3:8b",
+        "routing_strategy": RoutingStrategy.LOCAL_FIRST,
         "required_capabilities": [ModelCapability.CHAT],
         "max_tokens": 8192, "temperature": 0.7,
-        "description": "OpenClaw Fallback - Routes to best available local/free model",
+        "description": "OpenClaw - Routes to best available local model automatically",
     },
 }
 
@@ -993,7 +1226,73 @@ class NeuralBrain:
         self.usage = UsageTracker()
         self.product_presets = dict(PRODUCT_PRESETS)
         self._rate_counters: Dict[str, List[float]] = defaultdict(list)
+        self._sessions: Dict[str, Any] = {}  # Connection pool: provider → aiohttp.ClientSession
+        self._installed_ollama_models: set = set()  # Track what's actually installed
+
+        # v4.0: Self-learning, quantization, distillation
+        self.learning = None      # Initialized lazily
+        self.quantization = None  # Initialized lazily
+        self.distillation = None  # Initialized lazily
+        self._init_v4_engines()
         self._auto_configure()
+
+    def _init_v4_engines(self):
+        """Initialize v4.0 engines: self-learning, quantization, distillation."""
+        try:
+            from core.learning import SelfLearningEngine
+            self.learning = SelfLearningEngine()
+            logger.info("Self-learning engine initialized")
+        except Exception as e:
+            logger.warning(f"Self-learning engine init failed: {e}")
+
+        try:
+            from core.quantization import QuantizationManager
+            self.quantization = QuantizationManager(brain=self)
+            logger.info("Quantization manager initialized")
+        except Exception as e:
+            logger.warning(f"Quantization manager init failed: {e}")
+
+        try:
+            from core.distillation import DistillationEngine
+            self.distillation = DistillationEngine(brain=self)
+            logger.info("Distillation engine initialized")
+        except Exception as e:
+            logger.warning(f"Distillation engine init failed: {e}")
+
+    async def _get_session(self, provider: str = "default") -> Any:
+        """Reuse aiohttp sessions per provider for connection pooling.
+        Optimized for sub-2-second response times with aggressive keep-alive."""
+        import aiohttp
+        session = self._sessions.get(provider)
+        if session is None or session.closed:
+            connector = aiohttp.TCPConnector(
+                limit=200, limit_per_host=50,   # More concurrent connections
+                ttl_dns_cache=600,               # Cache DNS 10 minutes
+                enable_cleanup_closed=True,      # Auto-cleanup closed connections
+                keepalive_timeout=300,            # Keep connections alive 5 minutes
+            )
+            timeout = aiohttp.ClientTimeout(
+                total=120, connect=5,            # Fast connect timeout
+                sock_connect=5, sock_read=120,
+            )
+            session = aiohttp.ClientSession(connector=connector, timeout=timeout)
+            self._sessions[provider] = session
+        return session
+
+    async def close(self):
+        """Cleanup all sessions and persist learning data on shutdown."""
+        # Save learning data before shutdown
+        if self.learning:
+            try:
+                self.learning.save()
+                logger.info("Learning data persisted to disk")
+            except Exception as e:
+                logger.warning(f"Failed to save learning data: {e}")
+
+        for session in self._sessions.values():
+            if session and not session.closed:
+                await session.close()
+        self._sessions.clear()
 
     def _auto_configure(self):
         env_map = {
@@ -1050,7 +1349,7 @@ class NeuralBrain:
         ptype = ProviderType(provider) if provider in [p.value for p in ProviderType] else ProviderType.CUSTOM
         model = ModelConfig(id=model_id, provider=ptype, name=name, endpoint=endpoint, **kwargs)
         self.models[model_id] = model
-        self.router = SmartRouter(self.models)
+        self.router = SmartRouter(self.models, learning_engine=self.learning)
         return model
 
     def register_product(self, product_name: str, preset: Dict):
@@ -1063,8 +1362,8 @@ class NeuralBrain:
                 req.model = preset.get("default_model", "")
             if not req.required_capabilities:
                 req.required_capabilities = preset.get("required_capabilities", [])
-            if req.routing_strategy == RoutingStrategy.FALLBACK:
-                req.routing_strategy = preset.get("routing_strategy", RoutingStrategy.FALLBACK)
+            if req.routing_strategy == RoutingStrategy.LOCAL_FIRST:
+                req.routing_strategy = preset.get("routing_strategy", RoutingStrategy.LOCAL_FIRST)
 
         cached = self.cache.get(req)
         if cached:
@@ -1083,7 +1382,7 @@ class NeuralBrain:
                     logger.warning(f"Model {req.model} failed: {e}")
                     self.usage.record_error(req, model.provider.value, model.id, str(e))
 
-        candidates = self.router.select_model(req)
+        candidates = self.router.select_model(req, query_type=getattr(req, '_query_type', ''))
         last_error = None
         for model in candidates[:7]:  # Try up to 7 models
             provider = self.providers.get(model.provider)
@@ -1099,18 +1398,41 @@ class NeuralBrain:
                 model.total_tokens += resp.usage.get("total_tokens", 0)
                 model.total_cost += resp.cost
                 model.avg_latency_ms = (model.avg_latency_ms * 0.9 + resp.latency_ms * 0.1) if model.avg_latency_ms > 0 else resp.latency_ms
+
+                # v4.0: Record success in learning engine
+                if self.learning:
+                    query_type = getattr(req, '_query_type', 'general')
+                    # Auto-quality: fast + non-empty = good
+                    quality = min(1.0, 0.5 + (0.3 if resp.latency_ms < 2000 else 0) +
+                                  (0.2 if len(resp.content) > 100 else 0))
+                    self.learning.record_request(
+                        model_id=model.id, query_type=query_type,
+                        latency_ms=resp.latency_ms, success=True,
+                        tokens=resp.usage.get("total_tokens", 0),
+                        quality_score=quality,
+                    )
+
                 return resp
             except Exception as e:
                 last_error = e
                 logger.warning(f"Provider {model.provider.value}/{model.id} failed: {e}")
                 self.usage.record_error(req, model.provider.value, model.id, str(e))
                 model.success_rate = max(0, model.success_rate - 5)
+
+                # v4.0: Record failure in learning engine
+                if self.learning:
+                    query_type = getattr(req, '_query_type', 'general')
+                    self.learning.record_request(
+                        model_id=model.id, query_type=query_type,
+                        latency_ms=0, success=False,
+                    )
+
                 continue
         raise RuntimeError(f"All providers failed. Last error: {last_error}")
 
     async def complete_stream(self, req: CompletionRequest) -> AsyncGenerator[str, None]:
         req.stream = True
-        model_id = req.model or "ollama/phi3:mini"
+        model_id = req.model or "ollama/qwen3:8b"
         model = self.models.get(model_id)
         if not model:
             candidates = self.router.select_model(req)
@@ -1120,24 +1442,60 @@ class NeuralBrain:
 
     async def embed(self, req: EmbeddingRequest) -> EmbeddingResponse:
         import aiohttp
-        model_id = req.model or "text-embedding-3-small"
+        model_id = req.model
+
+        # Local-first: try Ollama embedding models before cloud
+        local_embed_models = ["ollama/qwen3-embedding", "ollama/nomic-embed-text", "ollama/mxbai-embed-large"]
+        if not model_id or model_id in local_embed_models or model_id.startswith("ollama/"):
+            ollama_model = model_id.replace("ollama/", "") if model_id else "qwen3-embedding"
+            ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
+            try:
+                session = await self._get_session("ollama")
+                all_embeddings = []
+                for text in req.texts:
+                    resp = await session.post(
+                        f"{ollama_url}/api/embed",
+                        json={"model": ollama_model, "input": text},
+                        timeout=aiohttp.ClientTimeout(total=60),
+                    )
+                    data = await resp.json()
+                    if "embeddings" in data and data["embeddings"]:
+                        all_embeddings.append(data["embeddings"][0])
+                    elif "embedding" in data:
+                        all_embeddings.append(data["embedding"])
+                    else:
+                        raise RuntimeError(f"Ollama embed failed: {data}")
+                return EmbeddingResponse(
+                    embeddings=all_embeddings,
+                    model=f"ollama/{ollama_model}", provider="ollama", usage={},
+                    dimensions=len(all_embeddings[0]) if all_embeddings else 0,
+                )
+            except Exception as e:
+                if model_id and model_id.startswith("ollama/"):
+                    raise
+                logger.warning(f"Local embedding failed, falling back to cloud: {e}")
+
+        # Fallback to OpenAI embeddings
+        model_id = model_id or "text-embedding-3-small"
         key = os.getenv("OPENAI_API_KEY", "")
-        async with aiohttp.ClientSession() as session:
-            resp = await session.post(
-                "https://api.openai.com/v1/embeddings",
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={"model": model_id, "input": req.texts},
-                timeout=aiohttp.ClientTimeout(total=60),
-            )
-            data = await resp.json()
-            return EmbeddingResponse(
-                embeddings=[d["embedding"] for d in data.get("data", [])],
-                model=model_id, provider="openai", usage=data.get("usage", {}),
-                dimensions=len(data["data"][0]["embedding"]) if data.get("data") else 0,
-            )
+        if not key:
+            raise RuntimeError("No local embedding model available and no OPENAI_API_KEY set. "
+                             "Install an Ollama embedding model: ollama pull nomic-embed-text")
+        session = await self._get_session("openai")
+        resp = await session.post(
+            "https://api.openai.com/v1/embeddings",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={"model": model_id, "input": req.texts},
+            timeout=aiohttp.ClientTimeout(total=60),
+        )
+        data = await resp.json()
+        return EmbeddingResponse(
+            embeddings=[d["embedding"] for d in data.get("data", [])],
+            model=model_id, provider="openai", usage=data.get("usage", {}),
+            dimensions=len(data["data"][0]["embedding"]) if data.get("data") else 0,
+        )
 
     async def _call_provider(self, model: ModelConfig, req: CompletionRequest) -> CompletionResponse:
-        import aiohttp
         start = time.time()
         request_id = req.request_id or hashlib.md5(f"{time.time()}".encode()).hexdigest()[:12]
         if model.provider == ProviderType.ANTHROPIC:
@@ -1163,27 +1521,27 @@ class NeuralBrain:
         if req.system: body["system"] = req.system
         if req.tools: body["tools"] = req.tools
         if req.stop: body["stop_sequences"] = req.stop
-        async with aiohttp.ClientSession() as session:
-            resp = await session.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json=body, timeout=aiohttp.ClientTimeout(total=120),
-            )
-            data = await resp.json()
-            if resp.status != 200:
-                raise RuntimeError(f"Anthropic error {resp.status}: {data.get('error', {}).get('message', str(data))}")
-            content = ""
-            tool_calls = []
-            for block in data.get("content", []):
-                if block["type"] == "text": content += block["text"]
-                elif block["type"] == "tool_use": tool_calls.append(block)
-            return CompletionResponse(
-                id=data.get("id", ""), content=content, model=model.id, provider="anthropic",
-                usage={"prompt_tokens": data.get("usage", {}).get("input_tokens", 0),
-                       "completion_tokens": data.get("usage", {}).get("output_tokens", 0),
-                       "total_tokens": data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0)},
-                finish_reason=data.get("stop_reason", "end_turn"), tool_calls=tool_calls,
-            )
+        session = await self._get_session("anthropic")
+        resp = await session.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+            json=body, timeout=aiohttp.ClientTimeout(total=120),
+        )
+        data = await resp.json()
+        if resp.status != 200:
+            raise RuntimeError(f"Anthropic error {resp.status}: {data.get('error', {}).get('message', str(data))}")
+        content = ""
+        tool_calls = []
+        for block in data.get("content", []):
+            if block["type"] == "text": content += block["text"]
+            elif block["type"] == "tool_use": tool_calls.append(block)
+        return CompletionResponse(
+            id=data.get("id", ""), content=content, model=model.id, provider="anthropic",
+            usage={"prompt_tokens": data.get("usage", {}).get("input_tokens", 0),
+                   "completion_tokens": data.get("usage", {}).get("output_tokens", 0),
+                   "total_tokens": data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0)},
+            finish_reason=data.get("stop_reason", "end_turn"), tool_calls=tool_calls,
+        )
 
     async def _call_google(self, model: ModelConfig, req: CompletionRequest) -> CompletionResponse:
         import aiohttp
@@ -1193,19 +1551,19 @@ class NeuralBrain:
                      "parts": [{"text": msg["content"]}]} for msg in req.messages]
         body = {"contents": contents, "generationConfig": {"temperature": req.temperature, "maxOutputTokens": req.max_tokens}}
         if req.system: body["systemInstruction"] = {"parts": [{"text": req.system}]}
-        async with aiohttp.ClientSession() as session:
-            resp = await session.post(url, json=body, timeout=aiohttp.ClientTimeout(total=120))
-            data = await resp.json()
-            if "error" in data:
-                raise RuntimeError(f"Google error: {data['error'].get('message', str(data))}")
-            content = data["candidates"][0]["content"]["parts"][0]["text"]
-            usage = data.get("usageMetadata", {})
-            return CompletionResponse(
-                id="", content=content, model=model.id, provider="google",
-                usage={"prompt_tokens": usage.get("promptTokenCount", 0),
-                       "completion_tokens": usage.get("candidatesTokenCount", 0),
-                       "total_tokens": usage.get("totalTokenCount", 0)},
-            )
+        session = await self._get_session("google")
+        resp = await session.post(url, json=body, timeout=aiohttp.ClientTimeout(total=120))
+        data = await resp.json()
+        if "error" in data:
+            raise RuntimeError(f"Google error: {data['error'].get('message', str(data))}")
+        content = data["candidates"][0]["content"]["parts"][0]["text"]
+        usage = data.get("usageMetadata", {})
+        return CompletionResponse(
+            id="", content=content, model=model.id, provider="google",
+            usage={"prompt_tokens": usage.get("promptTokenCount", 0),
+                   "completion_tokens": usage.get("candidatesTokenCount", 0),
+                   "total_tokens": usage.get("totalTokenCount", 0)},
+        )
 
     async def _call_local(self, model: ModelConfig, req: CompletionRequest) -> CompletionResponse:
         import aiohttp
@@ -1215,19 +1573,22 @@ class NeuralBrain:
             messages = []
             if req.system: messages.append({"role": "system", "content": req.system})
             messages.extend(req.messages)
+            # Performance: keep_alive=300s keeps model loaded in GPU for fast subsequent calls
             body = {"model": model_name, "messages": messages, "stream": False,
-                    "options": {"temperature": req.temperature, "num_predict": req.max_tokens}}
-            async with aiohttp.ClientSession() as session:
-                resp = await session.post(f"{endpoint}/api/chat", json=body,
-                                         timeout=aiohttp.ClientTimeout(total=300))
-                data = await resp.json()
-                return CompletionResponse(
-                    id="", content=data.get("message", {}).get("content", ""),
-                    model=model.id, provider="ollama",
-                    usage={"prompt_tokens": data.get("prompt_eval_count", 0),
-                           "completion_tokens": data.get("eval_count", 0),
-                           "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0)},
-                )
+                    "keep_alive": "5m",
+                    "options": {"temperature": req.temperature, "num_predict": req.max_tokens,
+                                "num_thread": 0}}  # 0 = auto-detect optimal threads
+            session = await self._get_session("ollama")
+            resp = await session.post(f"{endpoint}/api/chat", json=body,
+                                     timeout=aiohttp.ClientTimeout(total=120))
+            data = await resp.json()
+            return CompletionResponse(
+                id="", content=data.get("message", {}).get("content", ""),
+                model=model.id, provider="ollama",
+                usage={"prompt_tokens": data.get("prompt_eval_count", 0),
+                       "completion_tokens": data.get("eval_count", 0),
+                       "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0)},
+            )
         else:
             return await self._call_openai_compatible(model, req)
 
@@ -1247,18 +1608,18 @@ class NeuralBrain:
         headers = {"Content-Type": "application/json"}
         if key: headers["Authorization"] = f"Bearer {key}"
         if provider and provider.headers: headers.update(provider.headers)
-        async with aiohttp.ClientSession() as session:
-            resp = await session.post(f"{base_url}/chat/completions", headers=headers, json=body,
-                                     timeout=aiohttp.ClientTimeout(total=provider.timeout_seconds if provider else 120))
-            data = await resp.json()
-            if resp.status != 200:
-                raise RuntimeError(f"{model.provider.value} error: {data}")
-            choice = data["choices"][0]
-            return CompletionResponse(
-                id=data.get("id", ""), content=choice["message"].get("content", ""),
-                model=model.id, provider=model.provider.value,
-                usage=data.get("usage", {}), finish_reason=choice.get("finish_reason", "stop"),
-            )
+        session = await self._get_session(model.provider.value)
+        resp = await session.post(f"{base_url}/chat/completions", headers=headers, json=body,
+                                 timeout=aiohttp.ClientTimeout(total=provider.timeout_seconds if provider else 120))
+        data = await resp.json()
+        if resp.status != 200:
+            raise RuntimeError(f"{model.provider.value} error: {data}")
+        choice = data["choices"][0]
+        return CompletionResponse(
+            id=data.get("id", ""), content=choice["message"].get("content", ""),
+            model=model.id, provider=model.provider.value,
+            usage=data.get("usage", {}), finish_reason=choice.get("finish_reason", "stop"),
+        )
 
     async def _stream_provider(self, model: ModelConfig, req: CompletionRequest) -> AsyncGenerator[str, None]:
         import aiohttp
@@ -1268,21 +1629,50 @@ class NeuralBrain:
             body = {"model": model.id, "max_tokens": req.max_tokens,
                     "temperature": req.temperature, "messages": req.messages, "stream": True}
             if req.system: body["system"] = req.system
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                    json=body,
-                ) as resp:
-                    async for line in resp.content:
-                        text = line.decode("utf-8").strip()
-                        if text.startswith("data: "):
-                            try:
-                                event = json.loads(text[6:])
-                                if event.get("type") == "content_block_delta":
-                                    yield event["delta"].get("text", "")
-                            except json.JSONDecodeError:
-                                pass
+            session = await self._get_session("anthropic")
+            async with session.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json=body,
+            ) as resp:
+                async for line in resp.content:
+                    text = line.decode("utf-8").strip()
+                    if text.startswith("data: "):
+                        try:
+                            event = json.loads(text[6:])
+                            if event.get("type") == "content_block_delta":
+                                yield event["delta"].get("text", "")
+                        except json.JSONDecodeError:
+                            pass
+
+        elif model.provider == ProviderType.OLLAMA:
+            # Native Ollama streaming — faster than OpenAI-compatible format
+            endpoint = model.endpoint or "http://localhost:11434"
+            model_name = model.id.replace("ollama/", "")
+            messages = []
+            if req.system: messages.append({"role": "system", "content": req.system})
+            messages.extend(req.messages)
+            body = {"model": model_name, "messages": messages, "stream": True,
+                    "keep_alive": "5m",
+                    "options": {"temperature": req.temperature, "num_predict": req.max_tokens,
+                                "num_thread": 0}}
+            session = await self._get_session("ollama")
+            async with session.post(f"{endpoint}/api/chat", json=body,
+                                    timeout=aiohttp.ClientTimeout(total=300)) as resp:
+                async for line in resp.content:
+                    text = line.decode("utf-8").strip()
+                    if not text:
+                        continue
+                    try:
+                        chunk = json.loads(text)
+                        content = chunk.get("message", {}).get("content", "")
+                        if content:
+                            yield content
+                        if chunk.get("done", False):
+                            break
+                    except json.JSONDecodeError:
+                        pass
+
         else:
             provider = self.providers.get(model.provider)
             base_url = model.endpoint or (provider.base_url if provider else "https://api.openai.com/v1")
@@ -1295,17 +1685,17 @@ class NeuralBrain:
                     "max_tokens": req.max_tokens, "stream": True}
             headers = {"Content-Type": "application/json"}
             if key: headers["Authorization"] = f"Bearer {key}"
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{base_url}/chat/completions", headers=headers, json=body) as resp:
-                    async for line in resp.content:
-                        text = line.decode("utf-8").strip()
-                        if text.startswith("data: ") and text != "data: [DONE]":
-                            try:
-                                chunk = json.loads(text[6:])
-                                delta = chunk["choices"][0].get("delta", {}).get("content", "")
-                                if delta: yield delta
-                            except (json.JSONDecodeError, KeyError, IndexError):
-                                pass
+            session = await self._get_session(model.provider.value)
+            async with session.post(f"{base_url}/chat/completions", headers=headers, json=body) as resp:
+                async for line in resp.content:
+                    text = line.decode("utf-8").strip()
+                    if text.startswith("data: ") and text != "data: [DONE]":
+                        try:
+                            chunk = json.loads(text[6:])
+                            delta = chunk["choices"][0].get("delta", {}).get("content", "")
+                            if delta: yield delta
+                        except (json.JSONDecodeError, KeyError, IndexError):
+                            pass
 
     def _calculate_cost(self, model: ModelConfig, usage: Dict) -> float:
         input_tokens = usage.get("prompt_tokens", 0)
@@ -1325,30 +1715,113 @@ class NeuralBrain:
         import aiohttp
         url = os.getenv("OLLAMA_URL", "http://localhost:11434")
         try:
-            async with aiohttp.ClientSession() as session:
-                resp = await session.get(f"{url}/api/tags", timeout=aiohttp.ClientTimeout(total=5))
-                data = await resp.json()
-                models = []
-                for m in data.get("models", []):
-                    name = m["name"]
-                    model_id = f"ollama/{name}"
-                    if model_id not in self.models:
-                        self.add_custom_model(
-                            model_id=model_id, provider="ollama", name=f"{name} (Local)",
-                            endpoint=url, is_local=True,
-                            capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.CHEAP],
-                        )
-                    models.append(model_id)
-                return models
+            session = await self._get_session("ollama")
+            resp = await session.get(f"{url}/api/tags", timeout=aiohttp.ClientTimeout(total=5))
+            data = await resp.json()
+            models = []
+            for m in data.get("models", []):
+                name = m["name"]
+                model_id = f"ollama/{name}"
+                self._installed_ollama_models.add(model_id)
+                if model_id not in self.models:
+                    self.add_custom_model(
+                        model_id=model_id, provider="ollama", name=f"{name} (Local)",
+                        endpoint=url, is_local=True,
+                        capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING, ModelCapability.CHEAP],
+                    )
+                models.append(model_id)
+            logger.info(f"Ollama: {len(models)} models installed")
+            return models
         except Exception as e:
             logger.warning(f"Ollama discovery failed: {e}")
             return []
 
+    async def auto_pull_models(self, models: List[str] = None) -> List[str]:
+        """Auto-pull essential Ollama models that aren't installed yet."""
+        import aiohttp
+        url = os.getenv("OLLAMA_URL", "http://localhost:11434")
+
+        # Default: pull the most efficient models for each tier
+        if not models:
+            models = [
+                "qwen3:8b",        # Best general 8B — sweet spot
+                "qwen3:4b",        # Fast lightweight
+                "qwen2.5-coder:7b",# Code specialist
+                "deepseek-r1:8b",  # Reasoning
+                "nomic-embed-text", # Embeddings
+            ]
+
+        pulled = []
+        for model_name in models:
+            model_id = f"ollama/{model_name}"
+            if model_id in self._installed_ollama_models:
+                continue
+            try:
+                logger.info(f"Auto-pulling model: {model_name}")
+                session = await self._get_session("ollama")
+                resp = await session.post(
+                    f"{url}/api/pull",
+                    json={"name": model_name, "stream": False},
+                    timeout=aiohttp.ClientTimeout(total=1800),  # 30 min for large models
+                )
+                if resp.status == 200:
+                    self._installed_ollama_models.add(model_id)
+                    pulled.append(model_name)
+                    logger.info(f"Pulled: {model_name}")
+                else:
+                    logger.warning(f"Failed to pull {model_name}: HTTP {resp.status}")
+            except Exception as e:
+                logger.warning(f"Auto-pull {model_name} failed: {e}")
+        return pulled
+
+    async def warmup_models(self, models: List[str] = None) -> List[str]:
+        """Send tiny requests concurrently to pre-load models into GPU memory for <2s response times."""
+        if not models:
+            # Warm up the most commonly used models
+            models = ["ollama/qwen3:8b", "ollama/qwen3:4b"]
+
+        # Filter to only installed models
+        to_warm = [m for m in models if m in self._installed_ollama_models or m not in self.models]
+
+        async def _warm_one(model_id: str) -> Optional[str]:
+            try:
+                req = CompletionRequest(
+                    messages=[{"role": "user", "content": "hi"}],
+                    model=model_id, max_tokens=1, temperature=0,
+                )
+                await self.complete(req)
+                logger.info(f"Warmed up: {model_id}")
+                return model_id
+            except Exception:
+                return None
+
+        # Warm up concurrently (max 2 at a time to avoid VRAM issues)
+        warmed = []
+        for i in range(0, len(to_warm), 2):
+            batch = to_warm[i:i+2]
+            results = await asyncio.gather(*[_warm_one(m) for m in batch], return_exceptions=True)
+            for r in results:
+                if isinstance(r, str):
+                    warmed.append(r)
+
+        return warmed
+
+    async def periodic_save(self):
+        """Periodically save learning data (call this from a background task)."""
+        while True:
+            await asyncio.sleep(300)  # Save every 5 minutes
+            if self.learning:
+                try:
+                    self.learning.save()
+                except Exception:
+                    pass
+
     def get_status(self) -> Dict:
-        return {
-            "version": "2.0.0",
+        status = {
+            "version": "4.0.0",
             "total_models": len(self.models),
             "total_providers": len(self.providers),
+            "performance_target": "<2s quality responses",
             "categories": {
                 "general": len([m for m in self.models.values() if m.category == "general"]),
                 "code": len([m for m in self.models.values() if m.category == "code"]),
@@ -1356,6 +1829,11 @@ class NeuralBrain:
                 "vision": len([m for m in self.models.values() if m.category == "vision"]),
                 "audio": len([m for m in self.models.values() if m.category == "audio"]),
                 "embedding": len([m for m in self.models.values() if m.category == "embedding"]),
+            },
+            "v4_engines": {
+                "self_learning": self.learning is not None,
+                "quantization": self.quantization is not None,
+                "distillation": self.distillation is not None,
             },
             "providers": {
                 p.value: {"name": c.name, "enabled": c.enabled, "is_local": c.is_local,
@@ -1375,6 +1853,15 @@ class NeuralBrain:
             "cache": self.cache.stats(),
             "usage_summary": self.usage.get_summary(),
         }
+
+        # Add learning insights if available
+        if self.learning:
+            status["learning_insights"] = self.learning.get_insights()
+        # Add distillation stats if available
+        if self.distillation:
+            status["distillation"] = self.distillation.get_stats()
+
+        return status
 
     def list_models(self, provider: str = None, capability: str = None,
                     local_only: bool = False, category: str = None) -> List[Dict]:

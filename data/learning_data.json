@@ -1,0 +1,161 @@
+{
+  "version": "1.0",
+  "performance": {
+    "ollama/qwen3:8b": {
+      "code": {
+        "model_id": "ollama/qwen3:8b",
+        "query_type": "code",
+        "total_requests": 2,
+        "successes": 2,
+        "failures": 0,
+        "avg_latency_ms": 775.0,
+        "avg_quality_score": 0.8800000000000001,
+        "positive_feedback": 1,
+        "negative_feedback": 0,
+        "total_tokens": 0,
+        "ema_latency_ms": 792.5,
+        "ema_quality": 0.8800000000000001,
+        "routing_weight": 0.5768914470755453,
+        "last_used": 1772187725.2702084,
+        "last_failure": 0.0,
+        "consecutive_failures": 0
+      },
+      "reasoning": {
+        "model_id": "ollama/qwen3:8b",
+        "query_type": "reasoning",
+        "total_requests": 1,
+        "successes": 1,
+        "failures": 0,
+        "avg_latency_ms": 1200.0,
+        "avg_quality_score": 0.8,
+        "positive_feedback": 0,
+        "negative_feedback": 0,
+        "total_tokens": 0,
+        "ema_latency_ms": 1200,
+        "ema_quality": 0.8,
+        "routing_weight": 0.522026246797751,
+        "last_used": 1772187725.2702181,
+        "last_failure": 0.0,
+        "consecutive_failures": 0
+      }
+    },
+    "ollama/qwen2.5-coder:7b": {
+      "code": {
+        "model_id": "ollama/qwen2.5-coder:7b",
+        "query_type": "code",
+        "total_requests": 1,
+        "successes": 1,
+        "failures": 0,
+        "avg_latency_ms": 600.0,
+        "avg_quality_score": 0.97,
+        "positive_feedback": 1,
+        "negative_feedback": 0,
+        "total_tokens": 0,
+        "ema_latency_ms": 600,
+        "ema_quality": 0.97,
+        "routing_weight": 0.5428994896225523,
+        "last_used": 1772187725.2702243,
+        "last_failure": 0.0,
+        "consecutive_failures": 0
+      }
+    },
+    "ollama/deepseek-r1:8b": {
+      "reasoning": {
+        "model_id": "ollama/deepseek-r1:8b",
+        "query_type": "reasoning",
+        "total_requests": 1,
+        "successes": 1,
+        "failures": 0,
+        "avg_latency_ms": 1500.0,
+        "avg_quality_score": 0.92,
+        "positive_feedback": 0,
+        "negative_feedback": 0,
+        "total_tokens": 0,
+        "ema_latency_ms": 1500,
+        "ema_quality": 0.92,
+        "routing_weight": 0.5229788284274,
+        "last_used": 1772187725.2702332,
+        "last_failure": 0.0,
+        "consecutive_failures": 0
+      }
+    },
+    "ollama/phi4": {
+      "math": {
+        "model_id": "ollama/phi4",
+        "query_type": "math",
+        "total_requests": 1,
+        "successes": 1,
+        "failures": 0,
+        "avg_latency_ms": 900.0,
+        "avg_quality_score": 0.88,
+        "positive_feedback": 0,
+        "negative_feedback": 0,
+        "total_tokens": 0,
+        "ema_latency_ms": 900,
+        "ema_quality": 0.88,
+        "routing_weight": 0.5273966799462495,
+        "last_used": 1772187725.270239,
+        "last_failure": 0.0,
+        "consecutive_failures": 0
+      }
+    },
+    "ollama/qwen3:4b": {
+      "general": {
+        "model_id": "ollama/qwen3:4b",
+        "query_type": "general",
+        "total_requests": 1,
+        "successes": 1,
+        "failures": 0,
+        "avg_latency_ms": 400.0,
+        "avg_quality_score": 0.7,
+        "positive_feedback": 0,
+        "negative_feedback": 0,
+        "total_tokens": 0,
+        "ema_latency_ms": 400,
+        "ema_quality": 0.7,
+        "routing_weight": 0.5263704956699804,
+        "last_used": 1772187725.2702444,
+        "last_failure": 0.0,
+        "consecutive_failures": 0
+      }
+    },
+    "ollama/phi4-mini": {
+      "code": {
+        "model_id": "ollama/phi4-mini",
+        "query_type": "code",
+        "total_requests": 1,
+        "successes": 0,
+        "failures": 1,
+        "avg_latency_ms": 0.0,
+        "avg_quality_score": 0.45,
+        "positive_feedback": 0,
+        "negative_feedback": 1,
+        "total_tokens": 0,
+        "ema_latency_ms": 0.0,
+        "ema_quality": 0.45,
+        "routing_weight": 0.4735,
+        "last_used": 1772187725.2702537,
+        "last_failure": 1772187725.2702541,
+        "consecutive_failures": 1
+      }
+    }
+  },
+  "rankings": {
+    "code": [
+      "ollama/qwen3:8b",
+      "ollama/qwen2.5-coder:7b",
+      "ollama/phi4-mini"
+    ],
+    "reasoning": [
+      "ollama/deepseek-r1:8b",
+      "ollama/qwen3:8b"
+    ],
+    "math": [
+      "ollama/phi4"
+    ],
+    "general": [
+      "ollama/qwen3:4b"
+    ]
+  },
+  "saved_at": 1772187725.272046
+}

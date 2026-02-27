@@ -1,8 +1,13 @@
 """
-KaasAI Neural Brain v2.1 — REST API Gateway + Ensemble Engine
+KaasAI Neural Brain v4.0 — Self-Learning Local-First LLM Gateway
 Central LLM endpoint for all Kaashmikhaa products + OpenClaw fallback.
-84+ models, 15 providers, 6 categories.
-NEW: Ensemble mode — multi-model orchestration with specialist routing.
+100+ models, 15 providers, 6 categories.
+
+v4.0 FEATURES:
+- Self-learning: adapts routing based on real performance data
+- Quantization: auto-detects and prefers compressed models for speed
+- Distillation: larger models teach smaller ones
+- Sub-2-second responses: aggressive caching, warmup, connection pooling
 """
 import os
 import json
@@ -46,23 +51,65 @@ ensemble = EnsembleEngine(brain)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Discover what's already installed
     try:
         models = await brain.discover_ollama_models()
         if models:
-            logger.info(f"Discovered {len(models)} Ollama models: {models}")
+            logger.info(f"Discovered {len(models)} Ollama models")
     except Exception:
         pass
+
+    # Scan model sizes/quantization for optimization recommendations
+    if brain.quantization:
+        try:
+            await brain.quantization.scan_models()
+        except Exception:
+            pass
+
+    # Auto-pull essential models if not installed (runs in background)
+    if os.getenv("AUTO_PULL_MODELS", "true").lower() == "true":
+        async def _background_pull():
+            pulled = await brain.auto_pull_models()
+            if pulled:
+                logger.info(f"Auto-pulled {len(pulled)} models: {pulled}")
+                await brain.discover_ollama_models()  # Refresh after pull
+                # Warm up freshly pulled models for <2s responses
+                warmed = await brain.warmup_models()
+                if warmed:
+                    logger.info(f"Warmed up: {warmed}")
+                # Re-scan quantization after pulling
+                if brain.quantization:
+                    await brain.quantization.scan_models()
+        asyncio.create_task(_background_pull())
+
+    # Background task: periodic learning data save
+    async def _periodic_save():
+        while True:
+            await asyncio.sleep(300)  # Save every 5 minutes
+            if brain.learning:
+                try:
+                    brain.learning.save()
+                except Exception:
+                    pass
+    asyncio.create_task(_periodic_save())
+
     status = brain.get_status()
-    logger.info(f"Neural Brain v2.1 started — {status['total_models']} models, {status['total_providers']} providers")
+    logger.info(f"Neural Brain v4.0 started — {status['total_models']} models, {status['total_providers']} providers")
     logger.info(f"Categories: {status['categories']}")
-    logger.info(f"Ensemble Engine active — specialist routing enabled")
+    v4 = status.get("v4_engines", {})
+    logger.info(f"v4.0 engines: learning={v4.get('self_learning')}, quant={v4.get('quantization')}, distill={v4.get('distillation')}")
+    logger.info(f"Performance target: <2s quality responses")
     yield
+    # Cleanup: save learning data and close connections
+    await brain.close()
 
 
 app = FastAPI(
     title="KaasAI Neural Brain",
-    description="Unified LLM Gateway v2.1 — 84+ models, 15 providers, 6 categories. Ensemble multi-model orchestration.",
-    version="2.1.0",
+    description="Self-Learning Local-First LLM Gateway v4.0 — 100+ models, 15 providers. "
+                "Zero API keys needed. Self-learning adaptive routing, model quantization/compression, "
+                "knowledge distillation. Sub-2-second quality responses on any hardware.",
+    version="4.0.0",
     lifespan=lifespan,
 )
 
@@ -84,7 +131,7 @@ class ChatRequest(BaseModel):
     stream: bool = False
     tools: List[Dict] = []
     product: str = ""
-    routing_strategy: str = "fallback"
+    routing_strategy: str = "local_first"
     required_capabilities: List[str] = []
     max_cost_per_request: float = 0.0
     tags: Dict[str, str] = {}
@@ -126,7 +173,7 @@ class ModelAdd(BaseModel):
 class ProductRegister(BaseModel):
     product_name: str
     default_model: str = ""
-    routing_strategy: str = "fallback"
+    routing_strategy: str = "local_first"
     required_capabilities: List[str] = []
     max_tokens: int = 4096
     temperature: float = 0.7
@@ -143,10 +190,14 @@ async def health():
     return {
         "status": "ok",
         "service": "kaasai-neural-brain",
-        "version": "2.1.0",
+        "version": "4.0.0",
         "providers": sum(1 for p in brain.providers.values() if p.enabled),
         "models": len(brain.models),
         "ensemble": True,
+        "self_learning": brain.learning is not None,
+        "quantization": brain.quantization is not None,
+        "distillation": brain.distillation is not None,
+        "performance_target": "<2s",
         "timestamp": datetime.utcnow().isoformat(),
     }
 
@@ -251,7 +302,7 @@ async def chat_completions(request: Request, body: ChatRequest):
     try:
         req.routing_strategy = RoutingStrategy(body.routing_strategy)
     except ValueError:
-        req.routing_strategy = RoutingStrategy.FALLBACK
+        req.routing_strategy = RoutingStrategy.LOCAL_FIRST
     for cap_str in body.required_capabilities:
         try:
             req.required_capabilities.append(ModelCapability(cap_str))
@@ -435,7 +486,7 @@ async def register_product(body: ProductRegister):
     preset = {"default_model": body.default_model, "description": body.description,
               "max_tokens": body.max_tokens, "temperature": body.temperature}
     try: preset["routing_strategy"] = RoutingStrategy(body.routing_strategy)
-    except ValueError: preset["routing_strategy"] = RoutingStrategy.FALLBACK
+    except ValueError: preset["routing_strategy"] = RoutingStrategy.LOCAL_FIRST
     caps = []
     for c in body.required_capabilities:
         try: caps.append(ModelCapability(c))
@@ -457,6 +508,218 @@ async def clear_cache():
     brain.cache.hits = 0
     brain.cache.misses = 0
     return {"cleared": True}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  v4.0: Self-Learning Engine
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/v1/learning/insights")
+async def learning_insights():
+    """Get self-learning performance insights and adaptive rankings."""
+    if not brain.learning:
+        return {"error": "Self-learning engine not available"}
+    return brain.learning.get_insights()
+
+@app.get("/api/v1/learning/model/{model_id:path}")
+async def learning_model_report(model_id: str):
+    """Get detailed learning report for a specific model."""
+    if not brain.learning:
+        return {"error": "Self-learning engine not available"}
+    return brain.learning.get_model_report(model_id)
+
+@app.get("/api/v1/learning/rankings/{query_type}")
+async def learning_rankings(query_type: str):
+    """Get learned model rankings for a query type."""
+    if not brain.learning:
+        return {"error": "Self-learning engine not available"}
+    available = [m.id for m in brain.models.values() if m.is_local and m.enabled]
+    ranked = brain.learning.get_ranked_models(query_type, available)
+    return {"query_type": query_type, "rankings": [{"model": m, "score": round(s, 3)} for m, s in ranked]}
+
+class FeedbackRequest(BaseModel):
+    model_id: str
+    query_type: str = "general"
+    positive: bool
+    request_id: str = ""
+    details: str = ""
+
+@app.post("/api/v1/learning/feedback")
+async def submit_feedback(body: FeedbackRequest):
+    """Submit user feedback to improve model routing."""
+    if not brain.learning:
+        return {"error": "Self-learning engine not available"}
+    brain.learning.record_feedback(
+        model_id=body.model_id, query_type=body.query_type,
+        positive=body.positive, request_id=body.request_id, details=body.details,
+    )
+    return {"recorded": True, "model": body.model_id, "positive": body.positive}
+
+@app.post("/api/v1/learning/save")
+async def save_learning():
+    """Persist learning data to disk immediately."""
+    if not brain.learning:
+        return {"error": "Self-learning engine not available"}
+    brain.learning.save()
+    return {"saved": True}
+
+@app.post("/api/v1/learning/reset")
+async def reset_learning():
+    """Reset all learning data (start fresh)."""
+    if not brain.learning:
+        return {"error": "Self-learning engine not available"}
+    brain.learning.reset()
+    return {"reset": True}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  v4.0: Quantization & Compression Manager
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/v1/quantization/report")
+async def quantization_report():
+    """Get model space usage and compression recommendations."""
+    if not brain.quantization:
+        return {"error": "Quantization manager not available"}
+    await brain.quantization.scan_models()
+    return brain.quantization.get_space_report()
+
+@app.get("/api/v1/quantization/models")
+async def quantization_models():
+    """List all models with size and quantization info."""
+    if not brain.quantization:
+        return {"error": "Quantization manager not available"}
+    info = await brain.quantization.scan_models()
+    return {
+        model_id: {
+            "size_gb": i.size_gb, "params": i.parameter_count,
+            "quant": i.quantization, "family": i.family,
+        }
+        for model_id, i in info.items()
+    }
+
+@app.get("/api/v1/quantization/recommend")
+async def quantization_recommend(vram_gb: float = 0):
+    """Get quantization recommendations based on available VRAM."""
+    if not brain.quantization:
+        return {"error": "Quantization manager not available"}
+    await brain.quantization.scan_models()
+    recs = brain.quantization.get_compression_recommendations(vram_gb)
+    return {
+        "recommendations": [
+            {
+                "model": r.model_id,
+                "current": f"{r.current_size_gb}GB ({r.current_quant})",
+                "recommended": r.recommended_model,
+                "new_size": f"{r.estimated_size_gb}GB",
+                "savings": f"{r.savings_gb}GB ({r.savings_percent}%)",
+                "quality_kept": f"{r.quality_retention*100:.0f}%",
+                "reason": r.reason,
+            }
+            for r in recs
+        ]
+    }
+
+class CompressRequest(BaseModel):
+    model: str
+    target_quant: str = "q4_K_M"
+
+@app.post("/api/v1/quantization/compress")
+async def compress_model(body: CompressRequest):
+    """Pull a quantized version of a model to save space."""
+    if not brain.quantization:
+        return {"error": "Quantization manager not available"}
+    result = await brain.quantization.compress_model(body.model, body.target_quant)
+    if result.get("success"):
+        # Re-discover after compression
+        await brain.discover_ollama_models()
+    return result
+
+@app.get("/api/v1/quantization/optimal")
+async def optimal_quant(params: str = "8b", vram_gb: float = 8):
+    """Get the optimal quantization level for a model size and VRAM."""
+    if not brain.quantization:
+        return {"error": "Quantization manager not available"}
+    optimal = brain.quantization.get_optimal_quant_for_vram(params, vram_gb)
+    return {"params": params, "vram_gb": vram_gb, "optimal_quant": optimal}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  v4.0: Knowledge Distillation
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/v1/distillation/stats")
+async def distillation_stats():
+    """Get distillation engine status and dataset info."""
+    if not brain.distillation:
+        return {"error": "Distillation engine not available"}
+    return brain.distillation.get_stats()
+
+class DistillRequest(BaseModel):
+    teacher_model: str
+    student_model: str
+    domain: str = "general"
+    num_samples: int = 30
+
+@app.post("/api/v1/distillation/start")
+async def start_distillation(body: DistillRequest):
+    """Start a distillation job: teacher model teaches student model."""
+    if not brain.distillation:
+        return {"error": "Distillation engine not available"}
+    job = await brain.distillation.start_job(
+        teacher_model=body.teacher_model,
+        student_model=body.student_model,
+        domain=body.domain,
+        num_samples=body.num_samples,
+    )
+    return {"job_id": job.id, "status": job.status, "target": job.target_model_name}
+
+@app.get("/api/v1/distillation/jobs")
+async def distillation_jobs():
+    """List all distillation jobs."""
+    if not brain.distillation:
+        return {"error": "Distillation engine not available"}
+    return brain.distillation.get_all_jobs()
+
+@app.get("/api/v1/distillation/jobs/{job_id}")
+async def distillation_job_status(job_id: str):
+    """Get status of a specific distillation job."""
+    if not brain.distillation:
+        return {"error": "Distillation engine not available"}
+    status = brain.distillation.get_job_status(job_id)
+    if not status:
+        raise HTTPException(404, "Job not found")
+    return status
+
+class CollectRequest(BaseModel):
+    domain: str = "general"
+    num_samples: int = 20
+    teacher_model: str = ""
+
+@app.post("/api/v1/distillation/collect")
+async def collect_distillation_data(body: CollectRequest):
+    """Collect distillation training data from a teacher model."""
+    if not brain.distillation:
+        return {"error": "Distillation engine not available"}
+    collected = await brain.distillation.collect_dataset(
+        domain=body.domain, num_samples=body.num_samples,
+        teacher_model=body.teacher_model or None,
+    )
+    return {"domain": body.domain, "samples_collected": collected}
+
+@app.get("/api/v1/distillation/datasets")
+async def distillation_datasets():
+    """List available distillation datasets."""
+    if not brain.distillation:
+        return {"error": "Distillation engine not available"}
+    return {
+        domain: {
+            "samples": len(samples),
+            "avg_quality": round(sum(s.quality_score for s in samples) / len(samples), 3) if samples else 0,
+            "teachers": list(set(s.teacher_model for s in samples)),
+        }
+        for domain, samples in brain.distillation.datasets.items()
+    }
 
 
 # ═══ WebSocket ═══
