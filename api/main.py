@@ -230,21 +230,24 @@ ENSEMBLE_MODEL_IDS = {
 
 # ═══ Simple Chat Endpoint (shortcut) ═══
 
-# Speed tier → model preferences (tried in order, first available wins)
+# Speed tier → model preferences (tried in order, first installed wins)
 SPEED_TIERS = {
     "fast": [
         "ollama/qwen3:4b", "ollama/llama3.2:3b", "ollama/phi3:mini",
-        "ollama/llama3.2", "ollama/phi3", "ollama/qwen3:1.7b",
+        "ollama/llama3.2", "ollama/phi3", "ollama/phi3:latest",
+        "ollama/llama3.2:latest", "ollama/qwen3:1.7b",
     ],
     "medium": [
         "ollama/qwen3:8b", "ollama/deepseek-r1:8b", "ollama/qwen2.5-coder:7b",
-        "ollama/gemma3:12b", "ollama/phi4", "ollama/qwen2.5:7b",
-        "ollama/llama3.1", "ollama/llama3",
+        "ollama/gemma3:12b", "ollama/phi4:latest", "ollama/qwen2.5:7b",
+        "ollama/llama3.1:latest", "ollama/llama3:latest",
+        "ollama/deepseek-r1:latest",
     ],
     "thinking": [
         "ollama/deepseek-r1:32b", "ollama/qwen3:32b", "ollama/qwen3-coder:30b",
-        "ollama/qwen2.5-coder:32b", "ollama/llama3.3", "ollama/llama3.1:70b",
-        "ollama/codellama:34b", "ollama/mistral-small",
+        "ollama/qwen2.5-coder:32b", "ollama/llama3.3:latest", "ollama/llama3.1:70b",
+        "ollama/codellama:34b", "ollama/mistral-small:latest",
+        "ollama/mistral-small3.1:latest", "ollama/glm-4.7-flash:latest",
     ],
 }
 
@@ -256,6 +259,10 @@ class SimpleChatRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 4096
 
+def _is_installed(model_id: str) -> bool:
+    """Check if a model is actually installed in Ollama (not just registered)."""
+    return model_id in brain._installed_ollama_models
+
 @app.post("/api/v1/chat")
 async def simple_chat(body: SimpleChatRequest):
     """Simple chat endpoint with speed tier selection.
@@ -266,19 +273,19 @@ async def simple_chat(body: SimpleChatRequest):
         if f"ollama/{model}" in brain.models:
             model = f"ollama/{model}"
 
-    # If no model specified, pick from speed tier
+    # If no model specified, pick from speed tier (only installed models)
     if not model:
         tier = body.speed.lower() if body.speed else "fast"
         tier_models = SPEED_TIERS.get(tier, SPEED_TIERS["fast"])
         for candidate in tier_models:
-            if candidate in brain.models and brain.models[candidate].enabled:
+            if _is_installed(candidate):
                 model = candidate
                 break
-        # Fallback: pick any enabled local model
+        # Fallback: pick any actually installed local model
         if not model:
-            for m in brain.models.values():
-                if m.is_local and m.enabled:
-                    model = m.id
+            for m_id in brain._installed_ollama_models:
+                if m_id in brain.models and brain.models[m_id].enabled:
+                    model = m_id
                     break
 
     messages = [{"role": "user", "content": body.message}]
@@ -303,16 +310,16 @@ async def simple_chat(body: SimpleChatRequest):
 
 @app.get("/api/v1/chat/speeds")
 async def chat_speed_tiers():
-    """List available speed tiers and which models they use on this system."""
+    """List available speed tiers and which models are actually installed."""
     result = {}
     for tier, models in SPEED_TIERS.items():
-        available = [m for m in models if m in brain.models and brain.models[m].enabled]
+        installed = [m for m in models if _is_installed(m)]
         result[tier] = {
             "description": {"fast": "Quick responses <2s (small models)",
                             "medium": "Balanced quality + speed (7-12B models)",
                             "thinking": "Deep reasoning (large 30B+ models)"}[tier],
-            "active_model": available[0] if available else None,
-            "available_models": available,
+            "active_model": installed[0] if installed else None,
+            "installed_models": installed,
         }
     return result
 
@@ -391,11 +398,11 @@ async def chat_completions(request: Request, body: ChatRequest):
         if f"ollama/{resolved_model}" in brain.models:
             resolved_model = f"ollama/{resolved_model}"
 
-    # Speed tier: auto-select model if none specified
+    # Speed tier: auto-select model if none specified (only installed models)
     if not resolved_model and body.speed:
         tier_models = SPEED_TIERS.get(body.speed.lower(), [])
         for candidate in tier_models:
-            if candidate in brain.models and brain.models[candidate].enabled:
+            if _is_installed(candidate):
                 resolved_model = candidate
                 break
 
