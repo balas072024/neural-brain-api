@@ -1,0 +1,9 @@
+{"event": "agent_created", "timestamp": 1772217548.3711147, "details": {"agent": "test_agent", "role": "code"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "agent_created", "timestamp": 1772217548.3755016, "details": {"agent": "researcher", "role": "research"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "agent_created", "timestamp": 1772217548.3760707, "details": {"agent": "coder", "role": "code"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "crew_created", "timestamp": 1772217548.3764496, "details": {"crew": "dev_team", "agents": ["researcher", "coder"], "strategy": "chain"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "ok_event", "timestamp": 1772217548.391142, "details": {}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "bad_event", "timestamp": 1772217548.3913908, "details": {}, "severity": "error", "source": "system", "correlation_id": ""}
+{"event": "agent_created", "timestamp": 1772217548.392434, "details": {"agent": "test"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "task_started", "timestamp": 1772217548.393066, "details": {"task": "hello"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "test_event", "timestamp": 1772217548.3953161, "details": {"key": "value"}, "severity": "info", "source": "system", "correlation_id": ""}
