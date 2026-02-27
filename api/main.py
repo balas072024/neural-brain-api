@@ -238,10 +238,24 @@ class SimpleChatRequest(BaseModel):
 
 @app.post("/api/v1/chat")
 async def simple_chat(body: SimpleChatRequest):
-    """Simple chat endpoint — send a message, get a response."""
+    """Simple chat endpoint — send a message, get a response. Defaults to fast model."""
+    # Resolve model name: "qwen3:4b" -> "ollama/qwen3:4b"
+    model = body.model.strip()
+    if model and model not in brain.models:
+        # Try with ollama/ prefix
+        if f"ollama/{model}" in brain.models:
+            model = f"ollama/{model}"
+    # Default to a fast model if none specified
+    if not model:
+        for fast_model in ["ollama/qwen3:4b", "ollama/llama3.2:3b", "ollama/phi3:mini",
+                           "ollama/qwen3:8b", "ollama/deepseek-r1:8b"]:
+            if fast_model in brain.models and brain.models[fast_model].enabled:
+                model = fast_model
+                break
+
     messages = [{"role": "user", "content": body.message}]
     req = CompletionRequest(
-        messages=messages, model=body.model, system=body.system,
+        messages=messages, model=model, system=body.system,
         temperature=body.temperature, max_tokens=body.max_tokens,
     )
     req.routing_strategy = RoutingStrategy.LOCAL_FIRST
@@ -326,8 +340,14 @@ async def chat_completions(request: Request, body: ChatRequest):
         except Exception as e:
             raise HTTPException(500, f"Ensemble failed: {str(e)}")
 
+    # Resolve model name: "qwen3:4b" -> "ollama/qwen3:4b"
+    resolved_model = body.model.strip()
+    if resolved_model and resolved_model not in brain.models:
+        if f"ollama/{resolved_model}" in brain.models:
+            resolved_model = f"ollama/{resolved_model}"
+
     req = CompletionRequest(
-        messages=body.messages, model=body.model, provider=body.provider,
+        messages=body.messages, model=resolved_model, provider=body.provider,
         system=body.system, temperature=body.temperature, max_tokens=body.max_tokens,
         stream=body.stream, tools=body.tools, product=body.product, tags=body.tags,
     )
