@@ -61,6 +61,7 @@ class ProviderType(Enum):
     XAI = "xai"
     DEEPSEEK = "deepseek"
     MINIMAX = "minimax"
+    NATIVE = "native"     # Direct GGUF inference — no Ollama needed
     CUSTOM = "custom"
 
 
@@ -1229,15 +1230,16 @@ class NeuralBrain:
         self._sessions: Dict[str, Any] = {}  # Connection pool: provider → aiohttp.ClientSession
         self._installed_ollama_models: set = set()  # Track what's actually installed
 
-        # v4.0: Self-learning, quantization, distillation
+        # v4.0: Self-learning, quantization, distillation, native engine
         self.learning = None      # Initialized lazily
         self.quantization = None  # Initialized lazily
         self.distillation = None  # Initialized lazily
+        self.native = None        # Native GGUF engine (no Ollama needed)
         self._init_v4_engines()
         self._auto_configure()
 
     def _init_v4_engines(self):
-        """Initialize v4.0 engines: self-learning, quantization, distillation."""
+        """Initialize v4.0 engines: self-learning, quantization, distillation, native."""
         try:
             from core.learning import SelfLearningEngine
             self.learning = SelfLearningEngine()
@@ -1258,6 +1260,31 @@ class NeuralBrain:
             logger.info("Distillation engine initialized")
         except Exception as e:
             logger.warning(f"Distillation engine init failed: {e}")
+
+        # Native GGUF engine — run models without Ollama
+        try:
+            from core.native_engine import NativeEngine
+            self.native = NativeEngine()
+            if self.native.available:
+                # Discover GGUF models (including Ollama's cached files)
+                discovered = self.native.discover_models()
+                # Register native models in the main registry
+                for model_id, config in discovered.items():
+                    if model_id not in self.models:
+                        self.models[model_id] = ModelConfig(
+                            id=model_id, provider=ProviderType.NATIVE,
+                            name=f"{config.name} (Native)", endpoint="",
+                            is_local=True, category="general",
+                            context_window=config.n_ctx, max_output=2048,
+                            capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING,
+                                         ModelCapability.CHEAP, ModelCapability.FAST],
+                        )
+                logger.info(f"Native engine: {len(discovered)} GGUF models discovered")
+            else:
+                logger.info("Native engine: llama-cpp-python not installed (optional)")
+        except Exception as e:
+            self.native = None
+            logger.warning(f"Native engine init failed: {e}")
 
     async def _get_session(self, provider: str = "default") -> Any:
         """Reuse aiohttp sessions per provider for connection pooling.
@@ -1498,7 +1525,9 @@ class NeuralBrain:
     async def _call_provider(self, model: ModelConfig, req: CompletionRequest) -> CompletionResponse:
         start = time.time()
         request_id = req.request_id or hashlib.md5(f"{time.time()}".encode()).hexdigest()[:12]
-        if model.provider == ProviderType.ANTHROPIC:
+        if model.provider == ProviderType.NATIVE:
+            resp = await self._call_native(model, req)
+        elif model.provider == ProviderType.ANTHROPIC:
             resp = await self._call_anthropic(model, req)
         elif model.provider == ProviderType.GOOGLE:
             resp = await self._call_google(model, req)
@@ -1563,6 +1592,22 @@ class NeuralBrain:
             usage={"prompt_tokens": usage.get("promptTokenCount", 0),
                    "completion_tokens": usage.get("candidatesTokenCount", 0),
                    "total_tokens": usage.get("totalTokenCount", 0)},
+        )
+
+    async def _call_native(self, model: ModelConfig, req: CompletionRequest) -> CompletionResponse:
+        """Call native GGUF engine — zero external dependencies."""
+        if not self.native or not self.native.available:
+            raise RuntimeError("Native engine not available. Install: pip install llama-cpp-python")
+        result = await self.native.chat(
+            model_id=model.id, messages=req.messages,
+            temperature=req.temperature, max_tokens=min(req.max_tokens, 2048),
+            system=req.system,
+        )
+        return CompletionResponse(
+            id="", content=result.content, model=model.id, provider="native",
+            usage={"prompt_tokens": result.prompt_tokens,
+                   "completion_tokens": result.completion_tokens,
+                   "total_tokens": result.total_tokens},
         )
 
     async def _call_local(self, model: ModelConfig, req: CompletionRequest) -> CompletionResponse:
@@ -1837,6 +1882,8 @@ class NeuralBrain:
                 "self_learning": self.learning is not None,
                 "quantization": self.quantization is not None,
                 "distillation": self.distillation is not None,
+                "native_engine": self.native is not None and self.native.available if self.native else False,
+                "native_models": len(self.native.get_available_models()) if self.native and self.native.available else 0,
             },
             "providers": {
                 p.value: {"name": c.name, "enabled": c.enabled, "is_local": c.is_local,

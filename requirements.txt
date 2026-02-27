@@ -4,3 +4,10 @@ aiohttp==3.13.3
 pydantic==2.12.5
 httpx==0.28.1
 python-multipart==0.0.22
+# Native GGUF inference (optional — removes Ollama dependency)
+# For CPU only:  pip install llama-cpp-python
+# For NVIDIA GPU: CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
+# For Apple Metal: CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python
+llama-cpp-python>=0.3.0
+# For downloading models from HuggingFace (optional)
+huggingface-hub>=0.26.0

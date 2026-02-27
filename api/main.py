@@ -204,6 +204,8 @@ async def health():
         "self_learning": brain.learning is not None,
         "quantization": brain.quantization is not None,
         "distillation": brain.distillation is not None,
+        "native_engine": brain.native is not None and brain.native.available if brain.native else False,
+        "native_models": len(brain.native.get_available_models()) if brain.native and brain.native.available else 0,
         "performance_target": "<2s",
         "timestamp": datetime.utcnow().isoformat(),
     }
@@ -873,6 +875,137 @@ async def distillation_datasets():
         }
         for domain, samples in brain.distillation.datasets.items()
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+#  v4.0: Native GGUF Engine — Zero Ollama Dependency
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/v1/native/status")
+async def native_status():
+    """Get native GGUF engine status and discovered models."""
+    if not brain.native:
+        return {"available": False, "error": "Native engine not initialized"}
+    return brain.native.get_status()
+
+@app.get("/api/v1/native/models")
+async def native_models():
+    """List all discovered native GGUF models."""
+    if not brain.native:
+        return {"available": False, "models": []}
+    return {
+        "available": brain.native.available,
+        "models": brain.native.get_available_models(),
+        "loaded": brain.native.get_loaded_models(),
+    }
+
+@app.post("/api/v1/native/discover")
+async def native_discover():
+    """Re-scan for GGUF models on disk (including Ollama cache)."""
+    if not brain.native:
+        return {"error": "Native engine not initialized"}
+    discovered = brain.native.discover_models()
+    # Register new models in brain
+    for model_id, config in discovered.items():
+        if model_id not in brain.models:
+            from core.brain import ModelConfig, ProviderType, ModelCapability
+            brain.models[model_id] = ModelConfig(
+                id=model_id, provider=ProviderType.NATIVE,
+                name=f"{config.name} (Native)", endpoint="",
+                is_local=True, category="general",
+                context_window=config.n_ctx, max_output=2048,
+                capabilities=[ModelCapability.CHAT, ModelCapability.STREAMING,
+                             ModelCapability.CHEAP, ModelCapability.FAST],
+            )
+    return {"discovered": len(discovered), "models": list(discovered.keys())}
+
+class NativeLoadRequest(BaseModel):
+    model_id: str
+
+@app.post("/api/v1/native/load")
+async def native_load(body: NativeLoadRequest):
+    """Load a native GGUF model into memory for inference."""
+    if not brain.native or not brain.native.available:
+        return {"error": "Native engine not available. Install: pip install llama-cpp-python"}
+    success = brain.native.load_model(body.model_id)
+    return {"model": body.model_id, "loaded": success}
+
+@app.post("/api/v1/native/unload")
+async def native_unload(body: NativeLoadRequest):
+    """Unload a native model from memory."""
+    if not brain.native:
+        return {"error": "Native engine not initialized"}
+    brain.native.unload_model(body.model_id)
+    return {"model": body.model_id, "unloaded": True}
+
+class NativeChatRequest(BaseModel):
+    message: str
+    model_id: str = ""
+    system: str = ""
+    temperature: float = 0.7
+    max_tokens: int = 256
+
+@app.post("/api/v1/native/chat")
+async def native_chat(body: NativeChatRequest):
+    """Chat directly with a native GGUF model — zero Ollama dependency."""
+    if not brain.native or not brain.native.available:
+        return {"error": "Native engine not available. Install: pip install llama-cpp-python"}
+
+    model_id = body.model_id
+    if not model_id:
+        # Pick first available native model
+        available = brain.native.get_available_models()
+        if not available:
+            return {"error": "No native GGUF models found. Place .gguf files in /models/ directory."}
+        model_id = available[0]
+
+    try:
+        result = await brain.native.chat(
+            model_id=model_id,
+            messages=[{"role": "user", "content": body.message}],
+            temperature=body.temperature,
+            max_tokens=body.max_tokens,
+            system=body.system,
+        )
+        return {
+            "response": result.content,
+            "model": result.model_id,
+            "provider": "native",
+            "latency_ms": result.latency_ms,
+            "tokens_per_second": result.tokens_per_second,
+            "usage": {
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
+                "total_tokens": result.total_tokens,
+            },
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Native chat failed: {str(e)}")
+
+class NativeDownloadRequest(BaseModel):
+    repo_id: str  # HuggingFace repo, e.g. "Qwen/Qwen3-4B-GGUF"
+    filename: str = ""
+    quantization: str = "Q4_K_M"
+
+@app.post("/api/v1/native/download")
+async def native_download(body: NativeDownloadRequest):
+    """Download a GGUF model from HuggingFace Hub."""
+    if not brain.native:
+        return {"error": "Native engine not initialized"}
+    path = await brain.native.download_model(
+        repo_id=body.repo_id, filename=body.filename or None,
+        quantization=body.quantization,
+    )
+    if path:
+        brain.native.discover_models()  # Refresh after download
+        return {"success": True, "path": path}
+    return {"success": False, "error": "Download failed. Install: pip install huggingface-hub"}
+
+@app.get("/api/v1/native/catalog")
+async def native_catalog():
+    """List popular GGUF models available for download."""
+    from core.native_engine import POPULAR_GGUF_MODELS
+    return {"models": POPULAR_GGUF_MODELS}
 
 
 # ═══ WebSocket ═══
