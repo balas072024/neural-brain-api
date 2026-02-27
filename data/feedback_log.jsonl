@@ -1,0 +1,3 @@
+{"model": "ollama/qwen3:8b", "query_type": "code", "positive": true, "request_id": "", "details": "", "timestamp": 1772187725.2705526}
+{"model": "ollama/qwen2.5-coder:7b", "query_type": "code", "positive": true, "request_id": "", "details": "", "timestamp": 1772187725.2708373}
+{"model": "ollama/phi4-mini", "query_type": "code", "positive": false, "request_id": "", "details": "", "timestamp": 1772187725.2711165}
