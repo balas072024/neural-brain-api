@@ -226,6 +226,38 @@ ENSEMBLE_MODEL_IDS = {
     "neural-brain-auto", "neural-brain-ensemble",
 }
 
+
+# ═══ Simple Chat Endpoint (shortcut) ═══
+
+class SimpleChatRequest(BaseModel):
+    message: str
+    model: str = ""
+    system: str = ""
+    temperature: float = 0.7
+    max_tokens: int = 4096
+
+@app.post("/api/v1/chat")
+async def simple_chat(body: SimpleChatRequest):
+    """Simple chat endpoint — send a message, get a response."""
+    messages = [{"role": "user", "content": body.message}]
+    req = CompletionRequest(
+        messages=messages, model=body.model, system=body.system,
+        temperature=body.temperature, max_tokens=body.max_tokens,
+    )
+    req.routing_strategy = RoutingStrategy.LOCAL_FIRST
+    try:
+        resp = await brain.complete(req)
+        return {
+            "response": resp.content,
+            "model": resp.model,
+            "provider": resp.provider,
+            "latency_ms": round(resp.latency_ms, 1),
+            "cached": resp.cached,
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Chat failed: {str(e)}")
+
+
 @app.post("/api/v1/chat/completions")
 async def chat_completions(request: Request, body: ChatRequest):
     # Log request for debugging OpenClaw integration
