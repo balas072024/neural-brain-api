@@ -371,6 +371,120 @@ TEMPLATE \"\"\"{{{{ .Prompt }}}}\"\"\"
 
         return "q2_K"  # Absolute minimum
 
+    def get_quantization_status(self) -> List[Dict]:
+        """Get quantization status of all installed models."""
+        status = []
+        for model_id, info in self._model_info.items():
+            quant = info.quantization.lower() if info.quantization else "unknown"
+            quant_info = QUANTIZATION_LEVELS.get(quant)
+
+            # Determine optimization status
+            if quant in ("q4_k_m", "q4_0"):
+                opt_status = "optimal"
+                opt_detail = "Best balance of quality and speed"
+            elif quant in ("q3_k_m", "q2_k"):
+                opt_status = "compressed"
+                opt_detail = "Highly compressed, some quality loss"
+            elif quant in ("q5_k_m", "q5_0", "q6_k"):
+                opt_status = "good"
+                opt_detail = "High quality, could compress more for speed"
+            elif quant in ("q8_0",):
+                opt_status = "large"
+                opt_detail = "Near-lossless but uses extra space, recommend q4_K_M"
+            elif quant in ("fp16",):
+                opt_status = "uncompressed"
+                opt_detail = "Full precision, strongly recommend quantizing to q4_K_M"
+            else:
+                opt_status = "unknown"
+                opt_detail = "Quantization level not detected"
+
+            status.append({
+                "model": model_id,
+                "size_gb": info.size_gb,
+                "params": info.parameter_count,
+                "family": info.family,
+                "quantization": info.quantization or "unknown",
+                "bits_per_weight": quant_info.bits_per_weight if quant_info else None,
+                "quality_retention": f"{quant_info.quality_retention*100:.0f}%" if quant_info else "unknown",
+                "optimization_status": opt_status,
+                "detail": opt_detail,
+            })
+
+        status.sort(key=lambda x: x["size_gb"], reverse=True)
+        return status
+
+    async def auto_optimize(self, target_quant: str = "q4_K_M", dry_run: bool = True) -> Dict:
+        """Auto-optimize models by pulling quantized versions of unoptimized models.
+
+        Args:
+            target_quant: Target quantization level (default q4_K_M)
+            dry_run: If True, just report what would be done without actually pulling
+        """
+        if not self._model_info:
+            await self.scan_models()
+
+        actions = []
+        total_savings_gb = 0.0
+
+        for model_id, info in self._model_info.items():
+            quant = info.quantization.lower() if info.quantization else ""
+
+            # Skip already well-quantized or tiny models
+            if quant in ("q4_k_m", "q4_0", "q3_k_m", "q2_k"):
+                continue
+            if info.size_gb < 1.0:
+                continue
+
+            # Only optimize models that are larger than they need to be
+            # (q8_0, q5+, q6_K, fp16, or unknown large models)
+            clean_name = model_id.replace("ollama/", "")
+            base_name = clean_name.split(":")[0] if ":" in clean_name else clean_name
+            param_size = info.parameter_count.lower() if info.parameter_count else ""
+
+            # Build the quantized model tag to pull
+            if param_size:
+                quantized_name = f"{base_name}:{param_size}-{target_quant.lower()}"
+            else:
+                quantized_name = f"{base_name}:{target_quant.lower()}"
+
+            quant_info = QUANTIZATION_LEVELS.get(target_quant.lower(), QUANTIZATION_LEVELS["q4_K_M"])
+            estimated_new_size = info.size_gb * quant_info.size_ratio
+            savings = info.size_gb - estimated_new_size
+
+            if savings < 0.3:
+                continue
+
+            action = {
+                "model": model_id,
+                "current_quant": info.quantization or "unknown",
+                "current_size_gb": round(info.size_gb, 2),
+                "target_quant": target_quant,
+                "quantized_name": quantized_name,
+                "estimated_new_size_gb": round(estimated_new_size, 2),
+                "savings_gb": round(savings, 2),
+                "quality_retention": f"{quant_info.quality_retention*100:.0f}%",
+                "status": "pending",
+            }
+
+            if not dry_run:
+                result = await self.compress_model(model_id, target_quant)
+                action["status"] = "done" if result.get("success") else "failed"
+                action["result"] = result
+                if result.get("success"):
+                    total_savings_gb += savings
+
+            actions.append(action)
+            if dry_run:
+                total_savings_gb += savings
+
+        return {
+            "dry_run": dry_run,
+            "target_quant": target_quant,
+            "models_to_optimize": len(actions),
+            "total_potential_savings_gb": round(total_savings_gb, 2),
+            "actions": actions,
+        }
+
     def get_space_report(self) -> Dict:
         """Get a comprehensive report on model storage and optimization opportunities."""
         recommendations = self.get_compression_recommendations()

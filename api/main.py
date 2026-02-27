@@ -755,6 +755,35 @@ async def optimal_quant(params: str = "8b", vram_gb: float = 8):
     optimal = brain.quantization.get_optimal_quant_for_vram(params, vram_gb)
     return {"params": params, "vram_gb": vram_gb, "optimal_quant": optimal}
 
+@app.get("/api/v1/quantization/status")
+async def quantization_status():
+    """Show quantization level and optimization status of every installed model."""
+    if not brain.quantization:
+        return {"error": "Quantization manager not available"}
+    await brain.quantization.scan_models()
+    status = brain.quantization.get_quantization_status()
+    summary = {"optimal": 0, "good": 0, "compressed": 0, "large": 0, "uncompressed": 0, "unknown": 0}
+    for m in status:
+        summary[m["optimization_status"]] = summary.get(m["optimization_status"], 0) + 1
+    return {"total_models": len(status), "summary": summary, "models": status}
+
+class AutoOptimizeRequest(BaseModel):
+    target_quant: str = "q4_K_M"
+    dry_run: bool = True  # Set to false to actually pull quantized models
+
+@app.post("/api/v1/quantization/auto-optimize")
+async def auto_optimize(body: AutoOptimizeRequest):
+    """Auto-optimize all models by pulling quantized versions.
+    Set dry_run=false to actually download quantized variants."""
+    if not brain.quantization:
+        return {"error": "Quantization manager not available"}
+    result = await brain.quantization.auto_optimize(
+        target_quant=body.target_quant, dry_run=body.dry_run,
+    )
+    if not body.dry_run:
+        await brain.discover_ollama_models()
+    return result
+
 
 # ═══════════════════════════════════════════════════════════════
 #  v4.0: Knowledge Distillation
