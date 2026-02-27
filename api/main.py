@@ -131,6 +131,7 @@ class ChatRequest(BaseModel):
     stream: bool = False
     tools: List[Dict] = []
     product: str = ""
+    speed: str = ""  # "fast", "medium", "thinking" — auto-selects model if no model specified
     routing_strategy: str = "local_first"
     required_capabilities: List[str] = []
     max_cost_per_request: float = 0.0
@@ -229,29 +230,56 @@ ENSEMBLE_MODEL_IDS = {
 
 # ═══ Simple Chat Endpoint (shortcut) ═══
 
+# Speed tier → model preferences (tried in order, first available wins)
+SPEED_TIERS = {
+    "fast": [
+        "ollama/qwen3:4b", "ollama/llama3.2:3b", "ollama/phi3:mini",
+        "ollama/llama3.2", "ollama/phi3", "ollama/qwen3:1.7b",
+    ],
+    "medium": [
+        "ollama/qwen3:8b", "ollama/deepseek-r1:8b", "ollama/qwen2.5-coder:7b",
+        "ollama/gemma3:12b", "ollama/phi4", "ollama/qwen2.5:7b",
+        "ollama/llama3.1", "ollama/llama3",
+    ],
+    "thinking": [
+        "ollama/deepseek-r1:32b", "ollama/qwen3:32b", "ollama/qwen3-coder:30b",
+        "ollama/qwen2.5-coder:32b", "ollama/llama3.3", "ollama/llama3.1:70b",
+        "ollama/codellama:34b", "ollama/mistral-small",
+    ],
+}
+
 class SimpleChatRequest(BaseModel):
     message: str
     model: str = ""
+    speed: str = "fast"  # "fast" (<2s), "medium" (2-10s), "thinking" (deep reasoning)
     system: str = ""
     temperature: float = 0.7
     max_tokens: int = 4096
 
 @app.post("/api/v1/chat")
 async def simple_chat(body: SimpleChatRequest):
-    """Simple chat endpoint — send a message, get a response. Defaults to fast model."""
+    """Simple chat endpoint with speed tier selection.
+    Speed options: 'fast' (<2s, small models), 'medium' (balanced), 'thinking' (deep reasoning, large models)."""
     # Resolve model name: "qwen3:4b" -> "ollama/qwen3:4b"
     model = body.model.strip()
     if model and model not in brain.models:
-        # Try with ollama/ prefix
         if f"ollama/{model}" in brain.models:
             model = f"ollama/{model}"
-    # Default to a fast model if none specified
+
+    # If no model specified, pick from speed tier
     if not model:
-        for fast_model in ["ollama/qwen3:4b", "ollama/llama3.2:3b", "ollama/phi3:mini",
-                           "ollama/qwen3:8b", "ollama/deepseek-r1:8b"]:
-            if fast_model in brain.models and brain.models[fast_model].enabled:
-                model = fast_model
+        tier = body.speed.lower() if body.speed else "fast"
+        tier_models = SPEED_TIERS.get(tier, SPEED_TIERS["fast"])
+        for candidate in tier_models:
+            if candidate in brain.models and brain.models[candidate].enabled:
+                model = candidate
                 break
+        # Fallback: pick any enabled local model
+        if not model:
+            for m in brain.models.values():
+                if m.is_local and m.enabled:
+                    model = m.id
+                    break
 
     messages = [{"role": "user", "content": body.message}]
     req = CompletionRequest(
@@ -265,11 +293,28 @@ async def simple_chat(body: SimpleChatRequest):
             "response": resp.content,
             "model": resp.model,
             "provider": resp.provider,
+            "speed_tier": body.speed or "fast",
             "latency_ms": round(resp.latency_ms, 1),
             "cached": resp.cached,
         }
     except Exception as e:
         raise HTTPException(500, f"Chat failed: {str(e)}")
+
+
+@app.get("/api/v1/chat/speeds")
+async def chat_speed_tiers():
+    """List available speed tiers and which models they use on this system."""
+    result = {}
+    for tier, models in SPEED_TIERS.items():
+        available = [m for m in models if m in brain.models and brain.models[m].enabled]
+        result[tier] = {
+            "description": {"fast": "Quick responses <2s (small models)",
+                            "medium": "Balanced quality + speed (7-12B models)",
+                            "thinking": "Deep reasoning (large 30B+ models)"}[tier],
+            "active_model": available[0] if available else None,
+            "available_models": available,
+        }
+    return result
 
 
 @app.post("/api/v1/chat/completions")
@@ -345,6 +390,14 @@ async def chat_completions(request: Request, body: ChatRequest):
     if resolved_model and resolved_model not in brain.models:
         if f"ollama/{resolved_model}" in brain.models:
             resolved_model = f"ollama/{resolved_model}"
+
+    # Speed tier: auto-select model if none specified
+    if not resolved_model and body.speed:
+        tier_models = SPEED_TIERS.get(body.speed.lower(), [])
+        for candidate in tier_models:
+            if candidate in brain.models and brain.models[candidate].enabled:
+                resolved_model = candidate
+                break
 
     req = CompletionRequest(
         messages=body.messages, model=resolved_model, provider=body.provider,
