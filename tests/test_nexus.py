@@ -1140,7 +1140,7 @@ class TestNexusMain(unittest.TestCase):
         from nexus import Nexus
         nx = Nexus()
         status = nx.status
-        self.assertEqual(status["version"], "1.0.0")
+        self.assertEqual(status["version"], "2.0.0")
         self.assertIn("agents", status)
         self.assertIn("tools", status)
 
@@ -1171,6 +1171,488 @@ class TestMemoryManager(unittest.TestCase):
             mgr.search_relevant("Python")
         )
         self.assertGreater(len(results), 0)
+
+
+# ============================================================
+# 20. TIRAM v2.0: Self-Upgrade Engine Tests
+# ============================================================
+
+class TestSelfUpgradeEngine(unittest.TestCase):
+    """Test the self-upgrade engine."""
+
+    def test_create_engine(self):
+        from nexus.core.config import NexusConfig
+        from nexus.upgrade import SelfUpgradeEngine
+        engine = SelfUpgradeEngine(NexusConfig())
+        self.assertIsNotNone(engine)
+
+    def test_record_task_outcome(self):
+        from nexus.core.config import NexusConfig
+        from nexus.upgrade import SelfUpgradeEngine
+        engine = SelfUpgradeEngine(NexusConfig())
+        engine.record_task_outcome(
+            task_type="code", success=True, quality=0.9,
+            duration_ms=1500, model_used="claude", skills_used=["code"],
+        )
+        self.assertEqual(engine._metrics.tasks_completed, 1)
+        self.assertGreater(engine._metrics.task_success_rate, 0)
+
+    def test_discover_skills(self):
+        from nexus.core.config import NexusConfig
+        from nexus.upgrade import SelfUpgradeEngine
+        engine = SelfUpgradeEngine(NexusConfig())
+        skills = asyncio.get_event_loop().run_until_complete(
+            engine.discover_skills()
+        )
+        self.assertGreater(len(skills), 10)  # At least 10 discoverable skills
+
+    def test_install_skill(self):
+        from nexus.core.config import NexusConfig
+        from nexus.upgrade import SelfUpgradeEngine, SkillManifest
+        engine = SelfUpgradeEngine(NexusConfig())
+        unique_name = f"test_skill_{id(self)}"
+        engine.register_skill(SkillManifest(name=unique_name, version="1.0.0"))
+        self.assertFalse(engine.get_skill(unique_name).installed)
+        result = asyncio.get_event_loop().run_until_complete(
+            engine.install_skill(unique_name)
+        )
+        self.assertTrue(result)
+        self.assertTrue(engine.get_skill(unique_name).installed)
+        self.assertIn(unique_name, [s.name for s in engine.get_installed_skills()])
+
+    def test_upgrade_skill(self):
+        from nexus.core.config import NexusConfig
+        from nexus.upgrade import SelfUpgradeEngine, SkillManifest
+        engine = SelfUpgradeEngine(NexusConfig())
+        engine.register_skill(SkillManifest(name="upgradable", version="1.0.0", installed=True))
+        result = asyncio.get_event_loop().run_until_complete(
+            engine.upgrade_skill("upgradable")
+        )
+        self.assertTrue(result)
+        self.assertEqual(engine.get_skill("upgradable").version, "1.0.1")
+
+    def test_performance_metrics(self):
+        from nexus.core.config import NexusConfig
+        from nexus.upgrade import SelfUpgradeEngine
+        engine = SelfUpgradeEngine(NexusConfig())
+        for i in range(10):
+            engine.record_task_outcome(
+                task_type="code", success=i < 8, quality=0.7 + i * 0.02,
+                duration_ms=1000, model_used="claude", skills_used=[],
+            )
+        metrics = engine.metrics
+        self.assertEqual(metrics["tasks_completed"], 10)
+        self.assertGreater(metrics["success_rate"], 0.5)
+
+    def test_optimize_recommendations(self):
+        from nexus.core.config import NexusConfig
+        from nexus.upgrade import SelfUpgradeEngine
+        engine = SelfUpgradeEngine(NexusConfig())
+        recs = asyncio.get_event_loop().run_until_complete(engine.optimize())
+        self.assertIsInstance(recs, list)
+
+
+# ============================================================
+# 21. TIRAM v2.0: World Skills Tests
+# ============================================================
+
+class TestWorldSkills(unittest.TestCase):
+    """Test the world skills engine."""
+
+    def test_create_engine(self):
+        from nexus.skills import WorldSkillsEngine
+        engine = WorldSkillsEngine()
+        self.assertGreater(len(engine.list_domains()), 15)
+
+    def test_find_skill_for_task(self):
+        from nexus.skills import WorldSkillsEngine
+        engine = WorldSkillsEngine()
+        skill = engine.find_skill_for_task("Build a React dashboard with TailwindCSS")
+        self.assertIsNotNone(skill)
+        self.assertEqual(skill.domain.value, "web_frontend")
+
+    def test_find_backend_skill(self):
+        from nexus.skills import WorldSkillsEngine
+        engine = WorldSkillsEngine()
+        skill = engine.find_skill_for_task("Create a FastAPI REST endpoint for users")
+        self.assertIsNotNone(skill)
+        self.assertEqual(skill.domain.value, "web_backend")
+
+    def test_find_ml_skill(self):
+        from nexus.skills import WorldSkillsEngine
+        engine = WorldSkillsEngine()
+        skill = engine.find_skill_for_task("Train a machine learning model to classify images")
+        self.assertIsNotNone(skill)
+
+    def test_find_teaching_skill(self):
+        from nexus.skills import WorldSkillsEngine
+        engine = WorldSkillsEngine()
+        skill = engine.find_skill_for_task("Teach me about databases and explain SQL joins")
+        self.assertIsNotNone(skill)
+
+    def test_list_templates(self):
+        from nexus.skills import WorldSkillsEngine
+        engine = WorldSkillsEngine()
+        templates = engine.list_templates()
+        self.assertGreater(len(templates), 5)  # Has multiple templates
+
+    def test_get_template(self):
+        from nexus.skills import WorldSkillsEngine
+        engine = WorldSkillsEngine()
+        template = engine.get_template("react_component")
+        self.assertIsNotNone(template)
+        self.assertIn("{name}", template.template)
+
+    def test_stats(self):
+        from nexus.skills import WorldSkillsEngine
+        engine = WorldSkillsEngine()
+        stats = engine.stats
+        self.assertGreater(stats["total_skills"], 15)
+        self.assertGreater(stats["total_templates"], 3)
+
+
+# ============================================================
+# 22. TIRAM v2.0: Avatar System Tests
+# ============================================================
+
+class TestAvatarSystem(unittest.TestCase):
+    """Test the 3D avatar system."""
+
+    def test_avatar_pipeline_creation(self):
+        from nexus.avatar import AvatarPipeline
+        pipeline = AvatarPipeline()
+        self.assertEqual(pipeline.personality.name, "Tiram")
+
+    def test_avatar_personality(self):
+        from nexus.avatar import AvatarPersonality
+        personality = AvatarPersonality(name="TestAvatar")
+        prompt = personality.to_system_prompt()
+        self.assertIn("TestAvatar", prompt)
+        self.assertIn("intelligent", prompt)
+
+    def test_avatar_voice_config(self):
+        from nexus.avatar import AvatarVoice, VoiceStyle
+        voice = AvatarVoice(provider="elevenlabs", style=VoiceStyle.WARM)
+        self.assertEqual(voice.style, VoiceStyle.WARM)
+
+    def test_avatar_appearance(self):
+        from nexus.avatar import AvatarAppearance
+        app = AvatarAppearance(name="Tiram", gender="female")
+        self.assertEqual(app.gender, "female")
+
+    def test_facial_expressions(self):
+        from nexus.avatar import FacialExpression, EmotionalState
+        for emotion in EmotionalState:
+            expr = FacialExpression.for_emotion(emotion)
+            self.assertEqual(expr.emotion, emotion)
+
+    def test_emotion_detection(self):
+        from nexus.avatar import AvatarPipeline
+        pipeline = AvatarPipeline()
+        emotion = pipeline._detect_emotion("I'm so happy with this!")
+        self.assertEqual(emotion.value, "happy")
+
+    def test_emotion_concerned(self):
+        from nexus.avatar import AvatarPipeline
+        pipeline = AvatarPipeline()
+        emotion = pipeline._detect_emotion("There's a bug in the code, it's broken")
+        self.assertEqual(emotion.value, "concerned")
+
+    def test_viseme_generation(self):
+        from nexus.avatar import AvatarPipeline
+        pipeline = AvatarPipeline()
+        visemes = pipeline._generate_viseme_sequence("Hello world")
+        self.assertGreater(len(visemes), 0)
+
+    def test_webgl_config(self):
+        from nexus.avatar import AvatarPipeline
+        pipeline = AvatarPipeline()
+        config = pipeline.get_webgl_config()
+        self.assertIn("avatar", config)
+        self.assertIn("voice", config)
+        self.assertIn("personality", config)
+        self.assertIn("rendering", config)
+        self.assertEqual(config["rendering"]["fps"], 60)
+
+    def test_avatar_state(self):
+        from nexus.avatar import AvatarPipeline
+        pipeline = AvatarPipeline()
+        state = pipeline.state
+        self.assertEqual(state["name"], "Tiram")
+        self.assertIn("emotion", state)
+
+
+# ============================================================
+# 23. TIRAM v2.0: Automation Pipeline Tests
+# ============================================================
+
+class TestAutomation(unittest.TestCase):
+    """Test the end-to-end automation engine."""
+
+    def test_create_engine(self):
+        from nexus.automation import AutomationEngine
+        engine = AutomationEngine()
+        self.assertGreater(len(engine.list_pipelines()), 3)
+
+    def test_list_pipelines(self):
+        from nexus.automation import AutomationEngine
+        engine = AutomationEngine()
+        pipelines = engine.list_pipelines()
+        types = [p["type"] for p in pipelines]
+        self.assertIn("website", types)
+        self.assertIn("saas", types)
+        self.assertIn("api", types)
+        self.assertIn("ml", types)
+
+    def test_get_pipeline(self):
+        from nexus.automation import AutomationEngine
+        engine = AutomationEngine()
+        pipeline = engine.get_pipeline("website")
+        self.assertIsNotNone(pipeline)
+        self.assertGreater(len(pipeline.steps), 5)
+
+    def test_saas_pipeline(self):
+        from nexus.automation import AutomationEngine
+        engine = AutomationEngine()
+        pipeline = engine.get_pipeline("saas")
+        self.assertIsNotNone(pipeline)
+        self.assertIn("Stripe", pipeline.tech_stack.get("payments", ""))
+
+    def test_detect_pipeline_type(self):
+        from nexus.automation import AutomationEngine
+        engine = AutomationEngine()
+        self.assertEqual(engine._detect_pipeline_type("Build a SaaS app with subscriptions"), "saas")
+        self.assertEqual(engine._detect_pipeline_type("Create a REST API for users"), "api")
+        self.assertEqual(engine._detect_pipeline_type("Train a machine learning model"), "ml")
+        self.assertEqual(engine._detect_pipeline_type("Build a dashboard with analytics"), "dashboard")
+
+    def test_pipeline_steps_have_prompts(self):
+        from nexus.automation import AutomationEngine
+        engine = AutomationEngine()
+        for pipeline in engine._pipelines.values():
+            for step in pipeline.steps:
+                self.assertTrue(len(step.prompt_template) > 0, f"Step {step.name} has empty prompt")
+
+
+# ============================================================
+# 24. TIRAM v2.0: Teaching Engine Tests
+# ============================================================
+
+class TestTeachingEngine(unittest.TestCase):
+    """Test the adaptive teaching engine."""
+
+    def test_create_engine(self):
+        from nexus.teaching import TeachingEngine
+        engine = TeachingEngine()
+        self.assertIsNotNone(engine)
+
+    def test_learner_profile(self):
+        from nexus.teaching import TeachingEngine, DifficultyLevel
+        engine = TeachingEngine()
+        learner = engine.get_learner("test_student")
+        self.assertEqual(learner.level, DifficultyLevel.BEGINNER)
+        self.assertEqual(learner.mastery_rate, 0.0)
+
+    def test_learner_context(self):
+        from nexus.teaching import TeachingEngine
+        engine = TeachingEngine()
+        learner = engine.get_learner("test")
+        learner.name = "Alice"
+        learner.topics_mastered = ["Python basics", "Variables"]
+        context = learner.to_context()
+        self.assertIn("Alice", context)
+        self.assertIn("Python basics", context)
+
+    def test_update_learner(self):
+        from nexus.teaching import TeachingEngine, DifficultyLevel
+        engine = TeachingEngine()
+        engine.update_learner("test", name="Bob", level=DifficultyLevel.ADVANCED)
+        learner = engine.get_learner("test")
+        self.assertEqual(learner.name, "Bob")
+        self.assertEqual(learner.level, DifficultyLevel.ADVANCED)
+
+    def test_teaching_methods(self):
+        from nexus.teaching import TeachingMethod
+        methods = list(TeachingMethod)
+        self.assertIn(TeachingMethod.SOCRATIC, methods)
+        self.assertIn(TeachingMethod.EXPLAIN, methods)
+        self.assertIn(TeachingMethod.EXAMPLE, methods)
+        self.assertIn(TeachingMethod.PROJECT, methods)
+
+    def test_difficulty_levels(self):
+        from nexus.teaching import DifficultyLevel
+        levels = list(DifficultyLevel)
+        self.assertEqual(len(levels), 5)
+
+    def test_stats(self):
+        from nexus.teaching import TeachingEngine
+        engine = TeachingEngine()
+        engine.get_learner("a")
+        engine.get_learner("b")
+        stats = engine.stats
+        self.assertEqual(stats["total_learners"], 2)
+
+
+# ============================================================
+# 25. TIRAM v2.0: Multilingual Engine Tests
+# ============================================================
+
+class TestMultilingual(unittest.TestCase):
+    """Test the multilingual intelligence system."""
+
+    def test_language_count(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        self.assertGreaterEqual(engine.language_count, 60)
+
+    def test_detect_english(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        self.assertEqual(engine.detect_language("Hello, how are you?"), "en")
+
+    def test_detect_spanish(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        self.assertEqual(engine.detect_language("Hola, como estas amigo"), "es")
+
+    def test_detect_french(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        self.assertEqual(engine.detect_language("Bonjour, comment allez-vous dans cette ville"), "fr")
+
+    def test_detect_chinese(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        self.assertEqual(engine.detect_language("你好世界"), "zh")
+
+    def test_detect_japanese(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        self.assertEqual(engine.detect_language("こんにちは世界"), "ja")
+
+    def test_detect_korean(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        self.assertEqual(engine.detect_language("안녕하세요"), "ko")
+
+    def test_detect_arabic(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        self.assertEqual(engine.detect_language("مرحبا بالعالم"), "ar")
+
+    def test_detect_hindi(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        self.assertEqual(engine.detect_language("नमस्ते दुनिया"), "hi")
+
+    def test_detect_german(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        self.assertEqual(engine.detect_language("Guten Tag, wie geht es Ihnen in der Stadt"), "de")
+
+    def test_detect_russian(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        self.assertEqual(engine.detect_language("Привет мир"), "ru")
+
+    def test_list_languages(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        langs = engine.list_languages()
+        self.assertGreaterEqual(len(langs), 60)
+        codes = [l["code"] for l in langs]
+        self.assertIn("en", codes)
+        self.assertIn("zh", codes)
+        self.assertIn("ar", codes)
+        self.assertIn("hi", codes)
+
+    def test_get_language_info(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        info = engine.get_language_info("ar")
+        self.assertIsNotNone(info)
+        self.assertEqual(info["direction"], "rtl")
+        self.assertEqual(info["name"], "Arabic")
+
+    def test_rtl_languages(self):
+        from nexus.languages import MultilingualEngine
+        engine = MultilingualEngine()
+        rtl_codes = ["ar", "he", "fa", "ur"]
+        for code in rtl_codes:
+            info = engine.get_language_info(code)
+            self.assertEqual(info["direction"], "rtl", f"{code} should be RTL")
+
+
+# ============================================================
+# 26. TIRAM v2.0: Integration Tests
+# ============================================================
+
+class TestTiramIntegration(unittest.TestCase):
+    """Test the full TIRAM integration."""
+
+    def test_tiram_creation(self):
+        from nexus import Tiram
+        tiram = Tiram()
+        self.assertIsNotNone(tiram.upgrade_engine)
+        self.assertIsNotNone(tiram.world_skills)
+        self.assertIsNotNone(tiram.avatar)
+        self.assertIsNotNone(tiram.automation)
+        self.assertIsNotNone(tiram.teaching)
+        self.assertIsNotNone(tiram.multilingual)
+
+    def test_tiram_backward_compat(self):
+        from nexus import Nexus, Tiram
+        self.assertIs(Nexus, Tiram)
+
+    def test_tiram_status(self):
+        from nexus import Tiram
+        tiram = Tiram()
+        status = tiram.status
+        self.assertEqual(status["name"], "TIRAM")
+        self.assertEqual(status["version"], "2.0.0")
+        self.assertIn("world_skills", status)
+        self.assertIn("languages_supported", status)
+        self.assertIn("upgrade_metrics", status)
+        self.assertIn("teaching_stats", status)
+        self.assertIn("avatar_state", status)
+        self.assertGreaterEqual(status["languages_supported"], 60)
+
+    def test_tiram_all_systems_initialized(self):
+        from nexus import Tiram
+        tiram = Tiram()
+        # v1 systems
+        self.assertIsNotNone(tiram.orchestrator)
+        self.assertIsNotNone(tiram.agent_manager)
+        self.assertIsNotNone(tiram.memory_manager)
+        self.assertIsNotNone(tiram.tool_registry)
+        self.assertIsNotNone(tiram.model_router)
+        self.assertIsNotNone(tiram.reflection_engine)
+        self.assertIsNotNone(tiram.security)
+        self.assertIsNotNone(tiram.permissions)
+        self.assertIsNotNone(tiram.audit)
+        # v2 systems
+        self.assertIsNotNone(tiram.upgrade_engine)
+        self.assertIsNotNone(tiram.world_skills)
+        self.assertIsNotNone(tiram.avatar)
+        self.assertIsNotNone(tiram.automation)
+        self.assertIsNotNone(tiram.teaching)
+        self.assertIsNotNone(tiram.multilingual)
+
+    def test_tiram_agent_workflow(self):
+        from nexus import Tiram
+        tiram = Tiram()
+        agent = tiram.agent("test_agent", role="code")
+        self.assertEqual(agent.name, "test_agent")
+
+    def test_tiram_tool_decorator(self):
+        from nexus import Tiram
+        tiram = Tiram()
+
+        @tiram.tool("greet", description="Greet someone")
+        async def greet(name: str) -> str:
+            return f"Hello {name}"
+
+        self.assertEqual(tiram.tool_registry.count, 1)
 
 
 # ============================================================

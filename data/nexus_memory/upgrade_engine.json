@@ -1,0 +1,53 @@
+{
+  "skills": [
+    {
+      "name": "test_skill",
+      "version": "1.0.0",
+      "description": "",
+      "category": "general",
+      "installed": true,
+      "performance_score": 0.0,
+      "usage_count": 0,
+      "capabilities": [],
+      "dependencies": [],
+      "entry_point": "",
+      "install_source": "",
+      "author": ""
+    },
+    {
+      "name": "upgradable",
+      "version": "1.0.1",
+      "description": "",
+      "category": "general",
+      "installed": true,
+      "performance_score": 0.0,
+      "usage_count": 0,
+      "capabilities": [],
+      "dependencies": [],
+      "entry_point": "",
+      "install_source": "",
+      "author": ""
+    },
+    {
+      "name": "test_skill_139420787720528",
+      "version": "1.0.0",
+      "description": "",
+      "category": "general",
+      "installed": true,
+      "performance_score": 0.0,
+      "usage_count": 0,
+      "capabilities": [],
+      "dependencies": [],
+      "entry_point": "",
+      "install_source": "",
+      "author": ""
+    }
+  ],
+  "evolved_prompts": {},
+  "metrics": {
+    "task_success_rate": 0.0,
+    "tasks_completed": 0,
+    "avg_quality_score": 0.0
+  },
+  "saved_at": 1772219174.449981
+}
