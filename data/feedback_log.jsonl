@@ -3,3 +3,7 @@
 {"model": "ollama/phi4-mini", "query_type": "code", "positive": false, "request_id": "", "details": "", "timestamp": 1772187725.2711165}
 {"model": "model-a", "query_type": "code", "positive": true, "request_id": "", "details": "", "timestamp": 1772193285.507945}
 {"model": "model-b", "query_type": "code", "positive": false, "request_id": "", "details": "", "timestamp": 1772193285.5082242}
+{"model": "model-a", "query_type": "code", "positive": true, "request_id": "", "details": "", "timestamp": 1772213923.001647}
+{"model": "model-b", "query_type": "code", "positive": false, "request_id": "", "details": "", "timestamp": 1772213923.0019362}
+{"model": "model-a", "query_type": "code", "positive": true, "request_id": "", "details": "", "timestamp": 1772214079.3948307}
+{"model": "model-b", "query_type": "code", "positive": false, "request_id": "", "details": "", "timestamp": 1772214079.39513}
