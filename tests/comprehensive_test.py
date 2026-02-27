@@ -237,10 +237,16 @@ try:
         model_id="test/model", gguf_path="/tmp/test.gguf",
         name="Test", family="test", params="4b", size_gb=2.5,
     )
-    assert cfg.n_ctx == 4096
+    assert cfg.n_ctx == 2048, f"Expected n_ctx=2048 (speed-optimized), got {cfg.n_ctx}"
     assert cfg.n_gpu_layers == -1
+    assert cfg.n_batch == 1024, f"Expected n_batch=1024, got {cfg.n_batch}"
+    assert cfg.flash_attn == True, "flash_attn should default to True"
+    assert cfg.use_mlock == True, "use_mlock should default to True"
+    assert cfg.use_mmap == True, "use_mmap should default to True"
+    assert cfg.n_threads == 2, f"Expected n_threads=2 (GPU-optimized), got {cfg.n_threads}"
+    assert cfg.warmup_done == False
     assert cfg.loaded == False
-    print(f"  [PASS] 4.7 NativeModelConfig defaults correct")
+    print(f"  [PASS] 4.7 NativeModelConfig v2.0 speed defaults correct")
     t_pass += 1
 except Exception as e:
     print(f"  [FAIL] 4.7: {e}")
@@ -255,6 +261,86 @@ try:
     t_pass += 1
 except Exception as e:
     print(f"  [FAIL] 4.8: {e}")
+    t_fail += 1
+
+# 4.9: Speed tier token capping
+try:
+    assert NativeEngine._speed_cap_tokens(256, "fast") == 128, "fast tier should cap at 128"
+    assert NativeEngine._speed_cap_tokens(256, "medium") == 256, "medium tier should cap at 256"
+    assert NativeEngine._speed_cap_tokens(512, "medium") == 256, "medium tier should cap at 256"
+    assert NativeEngine._speed_cap_tokens(100, "fast") == 100, "should use min(max_tokens, cap)"
+    assert NativeEngine._speed_cap_tokens(1024, "full") == 1024, "full tier should not cap"
+    print(f"  [PASS] 4.9 _speed_cap_tokens: fast=128, medium=256, full=uncapped")
+    t_pass += 1
+except Exception as e:
+    print(f"  [FAIL] 4.9: {e}")
+    t_fail += 1
+
+# 4.10: get_status() v2.0 speed optimization fields
+try:
+    status = engine.get_status()
+    assert "engine_version" in status, "Missing engine_version"
+    assert status["engine_version"] == "2.0-speed"
+    so = status["speed_optimizations"]
+    assert so["flash_attention"] == True
+    assert so["n_batch"] == 1024
+    assert so["n_threads_gpu"] == 2
+    assert so["use_mlock"] == True
+    assert so["use_mmap"] == True
+    assert so["kv_cache_warmup"] == True
+    assert "speed_tiers" in so
+    assert "fast" in so["speed_tiers"]
+    assert "medium" in so["speed_tiers"]
+    assert "full" in so["speed_tiers"]
+    print(f"  [PASS] 4.10 get_status() v2.0: engine_version={status['engine_version']}, all speed fields present")
+    t_pass += 1
+except Exception as e:
+    print(f"  [FAIL] 4.10: {e}")
+    t_fail += 1
+
+# 4.11: WARMUP_SYSTEM_PROMPT is set
+try:
+    assert hasattr(NativeEngine, 'WARMUP_SYSTEM_PROMPT')
+    assert len(NativeEngine.WARMUP_SYSTEM_PROMPT) > 0
+    print(f"  [PASS] 4.11 WARMUP_SYSTEM_PROMPT configured")
+    t_pass += 1
+except Exception as e:
+    print(f"  [FAIL] 4.11: {e}")
+    t_fail += 1
+
+# 4.12: Engine has speculative decoding check
+try:
+    assert hasattr(engine, '_speculative_available')
+    assert isinstance(engine._speculative_available, bool)
+    print(f"  [PASS] 4.12 Speculative decoding flag (available={engine._speculative_available})")
+    t_pass += 1
+except Exception as e:
+    print(f"  [FAIL] 4.12: {e}")
+    t_fail += 1
+
+# 4.13: Engine has _warmup_model method
+try:
+    assert hasattr(engine, '_warmup_model')
+    assert callable(engine._warmup_model)
+    print(f"  [PASS] 4.13 _warmup_model() method exists")
+    t_pass += 1
+except Exception as e:
+    print(f"  [FAIL] 4.13: {e}")
+    t_fail += 1
+
+# 4.14: complete() and chat() accept speed_tier parameter
+try:
+    import inspect
+    complete_sig = inspect.signature(engine.complete)
+    chat_sig = inspect.signature(engine.chat)
+    assert "speed_tier" in complete_sig.parameters, "complete() missing speed_tier param"
+    assert "speed_tier" in chat_sig.parameters, "chat() missing speed_tier param"
+    assert complete_sig.parameters["speed_tier"].default == "fast"
+    assert chat_sig.parameters["speed_tier"].default == "fast"
+    print(f"  [PASS] 4.14 complete() and chat() accept speed_tier (default='fast')")
+    t_pass += 1
+except Exception as e:
+    print(f"  [FAIL] 4.14: {e}")
     t_fail += 1
 
 results["Native Engine"] = {"pass": t_pass, "fail": t_fail}
@@ -986,7 +1072,7 @@ print(f"  │ Model download       │ {'ollama pull':16s} │ {'HuggingFace Hub
 print(f"  │ Auto-discover        │ {'Yes (API)':16s} │ {'Yes (disk scan)':17s} │")
 print(f"  │ Connection pooling   │ {'Yes (aiohttp)':16s} │ {'N/A (in-proc)':17s} │")
 print(f"  │ Keep-alive           │ {'30m GPU memory':16s} │ {'Always loaded':17s} │")
-print(f"  │ Context window       │ {'4096 (limited)':16s} │ {'4096 (default)':17s} │")
+print(f"  │ Context window       │ {'4096 (limited)':16s} │ {'2048 (speed opt)':17s} │")
 print(f"  │ Cost                 │ {'Free':16s} │ {'Free':17s} │")
 print(f"  │ Privacy              │ {'100% local':16s} │ {'100% local':17s} │")
 print("  ├──────────────────────┼──────────────────┼───────────────────┤")
@@ -1012,28 +1098,40 @@ print("    + Requires: Ollama running on localhost:11434")
 print("    + Latency: ~2-30s (depends on model size + GPU)")
 print("    + Models: Downloaded via 'ollama pull', managed by Ollama")
 print()
-print("  WITHOUT OLLAMA (Native Engine):")
+print("  WITHOUT OLLAMA (Native Engine v2.0 — Speed Optimized):")
 print("    User -> API -> NeuralBrain -> llama-cpp-python -> GPU -> Response")
 print("    + Requires: pip install llama-cpp-python")
-print("    + Latency: Similar (same GGUF format + GPU acceleration)")
+print("    + Latency: ~0.6-1.5s (flash_attn + speculative + KV warmup + batch=1024)")
 print("    + Models: Can reuse Ollama's cached GGUF blobs OR download from HuggingFace")
+print("    + Speed tiers: fast=128tok (~1-2s), medium=256tok, full=no cap")
 print()
 
 print("  NATIVE ENGINE DETAILS:")
 print("  ─────────────────────")
 if brain.native:
     ns = brain.native.get_status()
+    so = ns.get('speed_optimizations', {})
     print(f"    Library available:  {ns['available']}")
+    print(f"    Engine version:     {ns.get('engine_version', 'unknown')}")
     print(f"    Models discovered:  {ns['total_models_discovered']}")
     print(f"    Models loaded:      {ns['models_loaded']}/{ns['max_loaded']}")
     print(f"    Models directory:   {ns['models_dir']}")
-    print(f"    GPU layers:         {ns['gpu_layers']} (-1 = all)")
-    print(f"    Default context:    {ns['context_window']}")
+    print(f"    GPU layers:         {so.get('gpu_layers', 'N/A')} (-1 = all)")
+    print(f"    Default context:    {so.get('context_window', 'N/A')}")
+    print(f"    Flash attention:    {so.get('flash_attention', False)}")
+    print(f"    Batch size:         {so.get('n_batch', 'N/A')}")
+    print(f"    Threads (GPU):      {so.get('n_threads_gpu', 'N/A')}")
+    print(f"    Memory lock:        {so.get('use_mlock', False)}")
+    print(f"    Speculative decode: {so.get('speculative_decoding', False)}")
+    print(f"    KV cache warmup:    {so.get('kv_cache_warmup', False)}")
+    if so.get('speed_tiers'):
+        print(f"    Speed tiers:        {so['speed_tiers']}")
     if ns['models']:
         print()
         print("    Discovered models:")
         for mid, info in ns['models'].items():
-            print(f"      {mid}: {info['name']} ({info['size_gb']}GB, {info['quantization'] or 'unknown quant'})")
+            warmup = " [warmed]" if info.get('warmup_done') else ""
+            print(f"      {mid}: {info['name']} ({info['size_gb']}GB, {info['quantization'] or 'unknown quant'}){warmup}")
 else:
     print("    Native engine not initialized")
 
