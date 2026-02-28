@@ -1,4 +1,4 @@
-fastapi==0.133.1
+fastapi==0.134.0
 uvicorn[standard]==0.41.0
 aiohttp==3.13.3
 pydantic==2.12.5
@@ -8,6 +8,6 @@ python-multipart==0.0.22
 # For CPU only:  pip install llama-cpp-python
 # For NVIDIA GPU: CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
 # For Apple Metal: CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python
-llama-cpp-python>=0.3.0
+llama-cpp-python>=0.3.16
 # For downloading models from HuggingFace (optional)
-huggingface-hub>=0.26.0
+huggingface-hub>=1.5.0
