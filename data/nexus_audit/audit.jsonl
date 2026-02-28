@@ -56,3 +56,13 @@
 {"event": "task_started", "timestamp": 1772219174.4428883, "details": {"task": "hello"}, "severity": "info", "source": "system", "correlation_id": ""}
 {"event": "test_event", "timestamp": 1772219174.4433687, "details": {"key": "value"}, "severity": "info", "source": "system", "correlation_id": ""}
 {"event": "agent_created", "timestamp": 1772219174.452074, "details": {"agent": "test_agent", "role": "code"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "ok_event", "timestamp": 1772258579.194082, "details": {}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "bad_event", "timestamp": 1772258579.19828, "details": {}, "severity": "error", "source": "system", "correlation_id": ""}
+{"event": "agent_created", "timestamp": 1772258579.200338, "details": {"agent": "test"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "task_started", "timestamp": 1772258579.2005002, "details": {"task": "hello"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "test_event", "timestamp": 1772258579.2024348, "details": {"key": "value"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "agent_created", "timestamp": 1772258579.221777, "details": {"agent": "test_agent", "role": "code"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "agent_created", "timestamp": 1772258579.2270827, "details": {"agent": "researcher", "role": "research"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "agent_created", "timestamp": 1772258579.227346, "details": {"agent": "coder", "role": "code"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "crew_created", "timestamp": 1772258579.2276127, "details": {"crew": "dev_team", "agents": ["researcher", "coder"], "strategy": "chain"}, "severity": "info", "source": "system", "correlation_id": ""}
+{"event": "agent_created", "timestamp": 1772258579.3236573, "details": {"agent": "test_agent", "role": "code"}, "severity": "info", "source": "system", "correlation_id": ""}

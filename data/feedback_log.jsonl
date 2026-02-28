@@ -7,3 +7,5 @@
 {"model": "model-b", "query_type": "code", "positive": false, "request_id": "", "details": "", "timestamp": 1772213923.0019362}
 {"model": "model-a", "query_type": "code", "positive": true, "request_id": "", "details": "", "timestamp": 1772214079.3948307}
 {"model": "model-b", "query_type": "code", "positive": false, "request_id": "", "details": "", "timestamp": 1772214079.39513}
+{"model": "model-a", "query_type": "code", "positive": true, "request_id": "", "details": "", "timestamp": 1772258578.4695148}
+{"model": "model-b", "query_type": "code", "positive": false, "request_id": "", "details": "", "timestamp": 1772258578.4698424}
