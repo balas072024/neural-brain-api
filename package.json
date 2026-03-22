@@ -1,0 +1,30 @@
+{
+  "name": "neural-brain-api",
+  "version": "1.0.0",
+  "description": "Neural Brain API - AI Processing Backend for the Arivu ecosystem",
+  "main": "server/src/index.js",
+  "scripts": {
+    "start": "node server/src/index.js",
+    "dev": "node --watch server/src/index.js",
+    "seed": "node server/src/seed.js",
+    "test": "jest --forceExit --detectOpenHandles --testPathPattern=server/tests"
+  },
+  "keywords": ["ai", "nlp", "chat", "express", "neural"],
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.9",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "express-validator": "^7.2.1",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  }
+}
